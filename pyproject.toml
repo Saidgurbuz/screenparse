@@ -1,5 +1,5 @@
 [project]
-name = "python"
+name = "webshot-dataset"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -15,6 +15,9 @@ dependencies = [
     "python-slugify>=8.0.4",
     "tqdm>=4.67.1",
 ]
+
+[tool.uv]
+package = true
 
 [project.scripts]
 wsd = "dataset_tool.cli:main"

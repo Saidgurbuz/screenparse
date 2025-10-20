@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -10,7 +10,7 @@ class Viewport:
 
 @dataclass
 class Config:
-    viewport: Viewport = Viewport()
+    viewport: Viewport = field(default_factory=Viewport)
     locale: str = "en-US"
     color_scheme: str = "light"
     network_idle_wait_ms: int = 800
