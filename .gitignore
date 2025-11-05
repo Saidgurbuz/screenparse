@@ -9,3 +9,44 @@ wheels/
 # Virtual environments
 .venv
 data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Data directories
+data/
+*.png
+*.jpg
+*.jpeg
+*.json
+*.jsonl
+*.txt
+!requirements.txt
+!README.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Playwright
+playwright-state/
+
+# Logs
+*.log

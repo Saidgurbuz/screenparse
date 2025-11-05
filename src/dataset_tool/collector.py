@@ -54,19 +54,34 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
         """
         )
 
-        page.goto(url_c, wait_until="networkidle", timeout=60000)
+        page.goto(url_c, wait_until="networkidle", timeout=10000)
         page.wait_for_timeout(cfg.network_idle_wait_ms)
 
-        # Scroll to trigger lazy loads
-        page.evaluate(
-            """() => new Promise(res => {
-            let y=0; const step=window.innerHeight*0.8;
-            function s(){ y+=step; window.scrollTo({top:y,behavior:'instant'});
-              if(y<document.body.scrollHeight-2*window.innerHeight) requestAnimationFrame(s); else res(); }
-            s();
-        })"""
-        )
-        page.wait_for_timeout(400)
+        # ============================================================
+        # Capture mode: viewport-only OR full-page with scrolling
+        # ============================================================
+        if cfg.capture_full_page:
+            # OLD BEHAVIOR: Scroll to trigger lazy loads
+            page.evaluate(
+                """() => new Promise(res => {
+                let y=0; const step=window.innerHeight*0.8;
+                function s(){ y+=step; window.scrollTo({top:y,behavior:'instant'});
+                  if(y<document.body.scrollHeight-2*window.innerHeight) requestAnimationFrame(s); else res(); }
+                s();
+            })"""
+            )
+            page.wait_for_timeout(400)
+            # Reset to top after scrolling
+            page.evaluate("window.scrollTo(0, 0)")
+            page.wait_for_timeout(200)
+        else:
+            # NEW BEHAVIOR: Stay at viewport top (no scrolling)
+            page.evaluate("window.scrollTo(0, 0)")
+            page.wait_for_timeout(200)
+
+        # Get viewport dimensions for filtering
+        viewport_width = cfg.viewport.width
+        viewport_height = cfg.viewport.height
 
         # Collect per frame (main + iframes) with page-relative offsets
         frames = [page.main_frame] + [
@@ -94,20 +109,21 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
 
             # === ELEMENTS ===
             try:
-                # Robust strategy: querySelectorAll('*') then filter for visibility
+                # Collect all visible elements with viewport filtering
                 els = fr.evaluate(
-                    """() => {
-                    function visible(el){
+                    """(viewportHeight) => {
+                    function isVisible(el){
                       if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
                       const s = getComputedStyle(el);
                       if (s.display==='none' || s.visibility==='hidden' || parseFloat(s.opacity)===0) return false;
                       const r = el.getBoundingClientRect();
-                      return r.width>0 && r.height>0;
+                      // Must have size and be at least partially in viewport
+                      return r.width>0 && r.height>0 && r.top < viewportHeight && r.bottom > 0 && r.left < window.innerWidth && r.right > 0;
                     }
                     const out=[];
                     const nodes = Array.from(document.querySelectorAll('*'));
                     for (const n of nodes){
-                      if(!visible(n)) continue;
+                      if(!isVisible(n)) continue;
                       const r = n.getBoundingClientRect();
                       const attrs={}; for (const a of n.attributes) attrs[a.name]=a.value;
                       const role = n.getAttribute('role');
@@ -125,27 +141,29 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
                       });
                     }
                     return out;
-                }"""
+                }""",
+                    viewport_height,
                 )
                 # normalize + page-relative
                 for e in els:
                     e["frame_index"] = fr_idx
-                    e["type"] = guess_type(e["tag"], e["role"], e.get("attrs", {}))
+                    e["type"] = guess_type(
+                        e.get("tag") or "", e.get("role") or "", e.get("attrs") or {}
+                    )
                     e["rect"]["x"] = int(round(e["rect"]["x"])) + off["x"]
                     e["rect"]["y"] = int(round(e["rect"]["y"])) + off["y"]
                     e["rect"] = rect_to_int(e["rect"])
                 all_elements.extend(els)
             except Exception as _:
-                # keep going; text boxes might still work
                 pass
 
             # === TEXT SPANS ===
             try:
                 tboxes = fr.evaluate(
-                    """() => {
+                    """(viewportHeight) => {
                   const res=[];
                   const walker=document.createTreeWalker(document, NodeFilter.SHOW_TEXT);
-                  let n=walker.nextNode();  // correct start
+                  let n=walker.nextNode();
                   while(n){
                     const s = (n.nodeValue || '').replace(/\\s+/g,' ').trim();
                     if(s){
@@ -153,7 +171,8 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
                       range.selectNodeContents(n);
                       const rects = Array.from(range.getClientRects());
                       for(const r of rects){
-                        if(r.width>0 && r.height>0){
+                        // Filter to viewport
+                        if(r.width>0 && r.height>0 && r.top < viewportHeight && r.bottom > 0){
                           const parent = range.startContainer.parentElement;
                           const cs = parent ? getComputedStyle(parent) : null;
                           res.push({
@@ -169,7 +188,8 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
                     n=walker.nextNode();
                   }
                   return res;
-                }"""
+                }""",
+                    viewport_height,
                 )
                 for t in tboxes:
                     t["frame_index"] = fr_idx
@@ -180,25 +200,87 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
             except Exception:
                 pass
 
-        # AX tree (unchanged)
+        # === FILTER ELEMENTS - Import and use advanced filtering ===
+        from .filtering import filter_elements, analyze_filtering_impact
+
+        print(f"  Collected {len(all_elements)} raw elements")
+
+        # Save unfiltered if requested (for debugging)
+        if cfg.filter_config.save_unfiltered:
+            save_json(f"{base}.elements.unfiltered.json", all_elements)
+
+        filtered_elements = filter_elements(
+            all_elements,
+            viewport_w=viewport_width,
+            viewport_h=viewport_height,
+            iou_threshold=cfg.filter_config.iou_threshold,
+            containment_threshold=cfg.filter_config.containment_threshold,
+            min_box_size=cfg.filter_config.min_box_size,
+            max_box_size=cfg.filter_config.max_box_size,
+        )
+
+        # Analyze filtering impact
+        stats = analyze_filtering_impact(all_elements, filtered_elements)
+
+        if stats["protected_removed"] > 0:
+            print(
+                f"  ⚠️  WARNING: {stats['protected_removed']} protected elements were filtered!"
+            )
+            print(f"     Types: {stats['protected_removed_types']}")
+
+        print(
+            f"  Final: {len(filtered_elements)} elements (removed {stats['total_removed']}, {stats['removal_rate']*100:.1f}%)"
+        )
+
+        # Show what was removed by type
+        if stats["removed_types"]:
+            top_removed = sorted(
+                stats["removed_types"].items(), key=lambda x: x[1], reverse=True
+            )[:5]
+            print(f"  Top removed types: {dict(top_removed)}")
+
+        all_elements = filtered_elements
+
+        # AX tree
         ax_tree = page.accessibility.snapshot(root=None, interesting_only=False)
 
-        # Screenshot full page
+        # ============================================================
+        # CRITICAL CHANGE: Screenshot only viewport (not full page)
+        # ============================================================
+        # Screenshot: viewport-only or full-page based on config
         img_path = f"{base}.png"
-        page.screenshot(path=img_path, full_page=True)
+        try:
+            if cfg.capture_full_page:
+                page.screenshot(path=img_path, full_page=True, scale="css")
+            else:
+                page.screenshot(path=img_path, scale="css")  # Viewport only
+            scale_used = "css"
+        except TypeError:
+            if cfg.capture_full_page:
+                page.screenshot(path=img_path, full_page=True)
+            else:
+                page.screenshot(path=img_path)
+            scale_used = "device"
 
         meta = {
             "url": url_c,
             "ts": int(time.time()),
             "viewport": {
-                "w": cfg.viewport.width,
-                "h": cfg.viewport.height,
+                "w": viewport_width,
+                "h": viewport_height,
                 "dpr": cfg.viewport.device_scale_factor,
             },
             "browser": ctx.browser.version,
             "frames": len(frames),
-            "scroll_height": page.evaluate("() => document.body.scrollHeight"),
+            "capture_type": "full_page" if cfg.capture_full_page else "viewport_only",
+            "screenshot_scale": scale_used,
+            "css_to_image_scale": (
+                1 if scale_used == "css" else cfg.viewport.device_scale_factor
+            ),
         }
+
+        if cfg.capture_full_page:
+            meta["scroll_height"] = page.evaluate("() => document.body.scrollHeight")
 
         # Optional OCR per element (simple)
         ocr_results: List[Dict[str, Any]] = []
@@ -207,13 +289,16 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
                 import cv2, pytesseract
 
                 img = cv2.imread(img_path)
+                _sf = (
+                    1
+                    if meta["screenshot_scale"] == "css"
+                    else meta["css_to_image_scale"]
+                )
                 for idx, el in enumerate(all_elements):
-                    x, y, w, h = (
-                        el["rect"]["x"],
-                        el["rect"]["y"],
-                        el["rect"]["w"],
-                        el["rect"]["h"],
-                    )
+                    x = int(round(el["rect"]["x"] * _sf))
+                    y = int(round(el["rect"]["y"] * _sf))
+                    w = int(round(el["rect"]["w"] * _sf))
+                    h = int(round(el["rect"]["h"] * _sf))
                     x2 = max(0, x)
                     y2 = max(0, y)
                     crop = img[y2 : y2 + h, x2 : x2 + w]
@@ -241,9 +326,7 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
             record["ocr_path"] = f"{base}.ocr.json"
             save_json(record["ocr_path"], ocr_results)
 
-        # === Semi-raw triplets (text, [l,t,r,b], type) ===
-        # Prefer DOM element inner_text; fallback to OCR for that element index; else ''.
-        # Always export page-relative [l,t,r,b].
+        # === Semi-raw triplets ===
         ocr_map = (
             {o["element_index"]: o["text"] for o in ocr_results} if ocr_results else {}
         )
@@ -256,7 +339,7 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
             triplets.append(
                 {
                     "element_index": idx,
-                    "bbox_ltrb": lt_rb,  # [l, t, r, b] in CSS px
+                    "bbox_ltrb": lt_rb,
                     "type": el.get("type") or "unknown",
                     "text": text,
                     "tag": el.get("tag"),
@@ -265,10 +348,8 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
             )
         if triplets:
             record["triplets_path"] = f"{base}.triplets.jsonl"
-            # write JSONL
             with open(record["triplets_path"], "w", encoding="utf-8") as f:
                 for row in triplets:
-                    # tiny hand-rolled writer to avoid another dependency
                     import json as _json
 
                     f.write(_json.dumps(row, ensure_ascii=False) + "\n")

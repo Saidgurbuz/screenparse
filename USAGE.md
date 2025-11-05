@@ -1,6 +1,6 @@
 # Webshot Dataset Toolkit - Usage Guide
 
-A Python toolkit for collecting web screenshots with rich annotations including DOM elements, text spans, accessibility trees, and optional OCR.
+A Python toolkit for collecting web screenshots with rich annotations and exporting to YOLO format for training object detection models.
 
 ## Installation
 
@@ -22,250 +22,355 @@ playwright install chromium
 # Ubuntu: apt-get install tesseract-ocr
 ```
 
-## Quick Start
+## Quick Start - Full Pipeline
+
+The easiest way to use the toolkit is with the `pipeline` command that runs everything:
+
+```bash
+# Complete pipeline: crawl -> visualize -> export to YOLO
+wsd pipeline --urls urls.csv --out data/raw --yolo-dir data/yolo
+
+# With multithreading (4 workers)
+wsd pipeline --urls urls.csv --workers 4
+
+# With OCR enabled
+wsd pipeline --urls urls.csv --ocr
+
+# Custom train/val/test splits
+wsd pipeline --urls urls.csv --train-ratio 0.8 --val-ratio 0.1 --test-ratio 0.1
+```
+
+**Output:**
+
+```
+data/
+├── raw/              # Raw screenshots and annotations
+├── viz/              # Visualizations with bounding boxes
+└── yolo/             # YOLO-format dataset
+    ├── images/
+    │   ├── train/
+    │   ├── val/
+    │   └── test/
+    ├── labels/
+    │   ├── train/
+    │   ├── val/
+    │   └── test/
+    ├── data.yaml     # YOLO configuration
+    └── classes.txt   # Class names
+```
+
+## Step-by-Step Usage
 
 ### 1. Prepare URLs
 
-Create a CSV file with URLs to capture (one per line):
+Create `urls.csv` with one URL per line:
 
 ```csv
 https://example.com
 https://www.wikipedia.org
-https://news.ycombinator.com/
+https://github.com
 ```
 
-### 2. Crawl Websites
+### 2. Individual Commands
 
-Collect screenshots and annotations:
+#### Crawl Websites
 
 ```bash
 # Basic crawl
 wsd crawl --urls urls.csv --out data/raw
 
-# With OCR enabled
+# With multithreading (4 parallel workers)
+wsd crawl --urls urls.csv --workers 4
+
+# With OCR
 wsd crawl --urls urls.csv --out data/raw --ocr
 
-# Run browser in headed mode (visible window)
+# Headed mode (see browser)
 wsd crawl --urls urls.csv --headed
+
+# Maximum parallelism (8 workers)
+wsd crawl --urls urls.csv --workers 8
 ```
 
-**Output Structure:**
+**Performance Tips:**
 
-```
-data/raw/
-├── example-com-a1b2c3d4.png              # Screenshot
-├── example-com-a1b2c3d4.meta.json        # Metadata
-├── example-com-a1b2c3d4.elements.json    # DOM elements
-├── example-com-a1b2c3d4.texts.json       # Text spans
-├── example-com-a1b2c3d4.ax.json          # Accessibility tree
-├── example-com-a1b2c3d4.ocr.json         # OCR results (if --ocr)
-└── example-com-a1b2c3d4.triplets.jsonl   # Training-ready triplets
-```
+- Use `--workers 4` to crawl 4 pages in parallel
+- Recommended: 2-8 workers depending on your CPU
+- More workers = faster but higher memory usage
+- OCR is per-worker, so `--workers 4 --ocr` runs 4 OCR processes
 
-### 3. Visualize Annotations
-
-Generate annotated images with bounding boxes:
+#### Visualize Annotations
 
 ```bash
-# Visualize all collected data
+# Visualize all
 wsd viz --out data/raw --viz data/viz
 
-# Visualize single image
+# Single image
 wsd viz --image data/raw/example.png \
-        --elements data/raw/example.elements.json \
-        --texts data/raw/example.texts.json
+        --elements data/raw/example.elements.json
 
 # With OCR overlay
-wsd viz --ocr-overlay --out data/raw --viz data/viz
+wsd viz --ocr-overlay
 
 # Customize appearance
 wsd viz --opacity 120 --line-width 3 --no-labels
 ```
 
-**Visualization Options:**
-
-- `--no-elements` - Hide element boxes
-- `--no-texts` - Hide text span boxes
-- `--no-labels` - Hide element type labels
-- `--label-text-spans` - Show text content labels
-- `--opacity <0-255>` - Box fill transparency
-- `--line-width <pixels>` - Border thickness
-
-### 4. Deduplicate Images
-
-Find and group visually similar screenshots:
+#### Deduplicate Images
 
 ```bash
-# Find duplicates
 wsd dedupe --image-dir data/raw --csv data/dupes/dupe_groups.csv
-
-# Adjust sensitivity (lower = stricter)
-wsd dedupe --image-dir data/raw --threshold 5
 ```
 
-## Data Formats
+#### Export to YOLO
 
-### Elements JSON
+```bash
+wsd yolo --raw-dir data/raw --yolo-dir data/yolo
 
-Each element contains:
-
-```json
-{
-  "tag": "button",
-  "type": "button",
-  "role": "button",
-  "rect": {"x": 100, "y": 200, "w": 80, "h": 40},
-  "inner_text": "Click me",
-  "attrs": {"class": "btn-primary", "id": "submit"},
-  "frame_index": 0,
-  "z": 100
-}
+# Custom splits
+wsd yolo --raw-dir data/raw --yolo-dir data/yolo \
+         --train-ratio 0.8 --val-ratio 0.15 --test-ratio 0.05
 ```
 
-**Supported Types:** header, footer, nav, button, input, link, image, table, list, card, modal, icon, and 30+ more.
+## YOLO Classes
 
-### Text Spans JSON
+The toolkit exports **25 visually distinct UI element types**:
 
-Fine-grained text layout:
+| Class | Description |
+|-------|-------------|
+| button | Buttons, submit inputs |
+| input | Text inputs, textareas |
+| text | Paragraphs, text blocks |
+| image | Images, photos |
+| icon | Icons, small graphics |
+| link | Hyperlinks |
+| heading | H1-H6 headings |
+| navigation | Nav bars, breadcrumbs |
+| card | Cards, panels, tiles |
+| list | Lists (ul, ol) |
+| table | Data tables |
+| form | Forms |
+| video | Video/audio players |
+| checkbox | Checkboxes, radios, switches |
+| dropdown | Select dropdowns |
+| search | Search inputs |
+| menu | Dropdown menus |
+| footer | Page footers |
+| header | Page headers |
+| logo | Logos, brand images |
+| ad | Advertisements |
+| badge | Badges, labels, chips |
+| tooltip | Tooltips, popovers |
+| modal | Modals, dialogs |
+| tab | Tab controls |
 
-```json
-{
-  "text": "Hello World",
-  "rect": {"x": 50, "y": 100, "w": 120, "h": 18},
-  "font_family": "Arial, sans-serif",
-  "font_size": "16px",
-  "font_weight": "400"
-}
+## YOLO Format
+
+Each `.txt` file in `labels/` contains one line per annotation:
+
+```
+class_id center_x center_y width height
 ```
 
-### Triplets JSONL
+All coordinates are normalized to [0, 1].
 
-Training-ready format (one JSON object per line):
+Example `labels/train/page1.txt`:
 
-```json
-{"element_index": 0, "bbox_ltrb": [100, 200, 180, 240], "type": "button", "text": "Submit", "tag": "button", "role": null}
-{"element_index": 1, "bbox_ltrb": [50, 300, 250, 380], "type": "image", "text": "", "tag": "img", "role": "img"}
+```
+0 0.5000 0.2500 0.1500 0.0500
+2 0.3000 0.4000 0.2000 0.1000
+5 0.7500 0.1500 0.1000 0.0300
 ```
 
-## Advanced Usage
+## Training with YOLOv8
 
-### Custom Configuration
+```bash
+# Install ultralytics
+pip install ultralytics
 
-Modify viewport, locale, or other settings:
+# Train
+yolo train data=data/yolo/data.yaml model=yolov8n.pt epochs=100 imgsz=640
+
+# Validate
+yolo val model=runs/detect/train/weights/best.pt data=data/yolo/data.yaml
+
+# Predict
+yolo predict model=runs/detect/train/weights/best.pt source=test_image.png
+```
+
+## Advanced Configuration
+
+### Filtering Parameters
+
+The toolkit automatically filters annotations to remove:
+
+- Duplicate/overlapping boxes (IoU > 0.85)
+- Boxes too small (< 8x8 pixels)
+- Boxes mostly outside viewport
+- Hidden elements (aria-hidden, display:none)
+- Parent containers when children have same type
+
+Adjust in code via `filtering.py`:
 
 ```python
-from dataset_tool.config import Config, Viewport
+filter_elements(
+    elements,
+    iou_threshold=0.85,        # Duplicate threshold
+    containment_threshold=0.95, # Parent/child threshold
+    min_box_size=8,            # Minimum dimension
+    max_box_size=1000          # Maximum dimension
+)
+```
+
+### Custom Viewport
+
+Modify `src/dataset_tool/config.py`:
+
+```python
+@dataclass
+class Viewport:
+    width: int = 1920           # Change viewport width
+    height: int = 1080          # Change viewport height
+    device_scale_factor: float = 1.0  # Change DPR
+```
+
+### Custom Element Mapping
+
+Edit `src/dataset_tool/yolo_export.py` to modify `YOLO_CLASSES` or `map_to_yolo_class()`.
+
+## Programmatic Usage
+
+```python
+from dataset_tool.config import Config
 from dataset_tool.crawl import crawl
+from dataset_tool.yolo_export import export_yolo_dataset
 
-cfg = Config(
-    viewport=Viewport(width=1920, height=1080, device_scale_factor=1.0),
-    locale="de-DE",
-    color_scheme="dark",
-    headless=True,
-    do_ocr=True
+# Crawl
+cfg = Config(out_dir="data/raw", do_ocr=False, headless=True)
+crawl("urls.csv", out_dir="data/raw", headless=True)
+
+# Export
+export_yolo_dataset(
+    raw_dir="data/raw",
+    yolo_dir="data/yolo",
+    train_ratio=0.7,
+    val_ratio=0.2,
+    test_ratio=0.1,
 )
-
-results = crawl("urls.csv", out_dir="data/custom", 
-                do_ocr=True, headless=True)
 ```
 
-### Programmatic Collection
+## Annotation Quality
 
-```python
-from dataset_tool.collector import collect_one
-from dataset_tool.config import Config
+The toolkit includes several quality improvements:
 
-cfg = Config(out_dir="data/raw", do_ocr=False)
-record = collect_one("https://example.com", cfg)
-
-print(f"Saved to: {record['image_path']}")
-print(f"Found {len(record)} annotation files")
-```
-
-### Batch Visualization
-
-```python
-from dataset_tool.visualize import visualize_record, VizOptions
-from dataset_tool.config import Config
-
-cfg = Config(viz_dir="data/viz")
-opts = VizOptions(
-    draw_elements=True,
-    draw_text_spans=False,
-    opacity=100,
-    line_width=2
-)
-
-# Assuming 'record' from collect_one()
-viz_path = visualize_record(record, cfg, opts)
-print(f"Visualization saved to: {viz_path}")
-```
+1. **Visibility Filtering**: Removes invisible elements (display:none, opacity:0, etc.)
+2. **Deduplication**: Removes overlapping boxes using IoU
+3. **Size Filtering**: Removes tiny noise and unreasonably large boxes
+4. **Viewport Clipping**: Only includes elements at least 50% visible
+5. **Parent/Child Filtering**: Removes redundant parent containers
 
 ## Tips & Best Practices
 
-1. **Performance**: Crawling is slow (~5-10s per page). Run in parallel if needed.
-2. **OCR**: Only enable if you need text from images/canvas. Adds significant time.
-3. **Headless**: Always use headless mode in production (`--headed` is for debugging).
-4. **Deduplication**: Run after crawling to identify redundant captures.
-5. **Storage**: Each page generates ~500KB-5MB of data (varies by page complexity).
+1. **Start Small**: Test with 5-10 URLs first
+2. **Review Visualizations**: Check `data/viz/` to verify annotations
+3. **Adjust Classes**: Modify `YOLO_CLASSES` for your specific use case
+4. **Consistent Viewport**: Use same viewport size for all crawls
+5. **OCR**: Only enable if you need text from images (slower)
+6. **Deduplication**: Run to identify redundant captures before training
 
 ## Troubleshooting
 
-**Playwright not found:**
+**No annotations exported:**
 
-```bash
-playwright install chromium
-```
+- Check that elements.json files exist in raw_dir
+- Verify filtering isn't too aggressive (check min_box_size)
 
-**Tesseract errors (OCR):**
+**Too many overlapping boxes:**
 
-```bash
-# Ensure it's installed and in PATH
-which tesseract
-brew install tesseract  # macOS
-```
+- Decrease `iou_threshold` in filtering.py (e.g., 0.7)
+- Increase `containment_threshold` (e.g., 0.98)
 
-**Memory issues on large batches:**
+**Missing elements:**
 
-- Process URLs in smaller chunks
-- Close browser between batches
-- Increase system swap space
+- Check visualizations to see what was captured
+- Adjust visibility and size thresholds
+- Some dynamic content may not load (increase network_idle_wait_ms)
+
+**Memory issues:**
+
+- Process URLs in batches
+- Reduce viewport size
+- Disable OCR
 
 ## Example Workflow
 
 ```bash
 # 1. Prepare URLs
-echo "https://github.com" > urls.csv
-echo "https://stackoverflow.com" >> urls.csv
+cat > urls.csv << EOF
+https://github.com
+https://stackoverflow.com
+https://reddit.com
+EOF
 
-# 2. Collect data
-wsd crawl --urls urls.csv --out data/raw --ocr
+# 2. Run complete pipeline
+wsd pipeline --urls urls.csv --out data/raw --yolo-dir data/yolo
 
-# 3. Visualize
-wsd viz --out data/raw --viz data/viz --ocr-overlay
-
-# 4. Check for duplicates
-wsd dedupe --image-dir data/raw --csv data/dupes/groups.csv
-
-# 5. Review
+# 3. Review visualizations
 open data/viz/*.viz.jpg
+
+# 4. Check dataset
+ls -R data/yolo/
+
+# 5. Train YOLO
+yolo train data=data/yolo/data.yaml model=yolov8n.pt epochs=50
 ```
 
 ## Command Reference
 
 ```bash
-# Crawl
-wsd crawl [--urls FILE] [--out DIR] [--ocr] [--headed]
+# Full pipeline
+wsd pipeline [--urls FILE] [--out DIR] [--yolo-dir DIR] [--ocr] [--headed]
+             [--train-ratio FLOAT] [--val-ratio FLOAT] [--test-ratio FLOAT]
+             [--workers INT]
 
-# Visualize
-wsd viz [--image FILE] [--out DIR] [--viz DIR] [--ocr-overlay]
-        [--no-elements] [--no-texts] [--no-labels]
-        [--opacity N] [--line-width N]
-
-# Deduplicate
+# Individual commands
+wsd crawl [--urls FILE] [--out DIR] [--ocr] [--headed] [--workers INT]
+wsd viz [--out DIR] [--viz DIR] [--ocr-overlay] [--opacity N] [--line-width N]
 wsd dedupe [--image-dir DIR] [--threshold N] [--csv FILE]
+wsd yolo [--raw-dir DIR] [--yolo-dir DIR] [--train-ratio F] [--val-ratio F]
 ```
 
-## License & Citation
+## Performance Optimization
 
-See LICENSE file for terms. If using this toolkit in research, please cite appropriately.
+### Multithreading
+
+The toolkit supports parallel crawling for faster data collection:
+
+```bash
+# Sequential (default)
+wsd crawl --urls urls.csv
+
+# 4 parallel workers (recommended)
+wsd crawl --urls urls.csv --workers 4
+
+# 8 workers for large datasets
+wsd crawl --urls urls.csv --workers 8
+```
+
+**Guidelines:**
+
+- **2-4 workers**: Good for most machines
+- **4-8 workers**: High-end machines with 16GB+ RAM
+- **8+ workers**: Server environments only
+
+**Memory usage**: ~500MB per worker (more with OCR)
+
+### Pipeline Optimization
+
+```bash
+# Fast pipeline with parallelism
+wsd pipeline --urls urls.csv --workers 6 --skip-dedupe
+
+# Balanced (recommended)
+wsd pipeline --urls urls.csv --workers 4
+```

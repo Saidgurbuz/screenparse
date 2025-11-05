@@ -1,140 +1,159 @@
-from typing import Optional, Dict
+"""Element type classification for UI elements."""
 
-# Canonical element types we’ll see in annotations
-ELEMENT_TYPES = [
-    "header",
-    "footer",
-    "nav",
-    "section",
-    "article",
-    "aside",
-    "link",
-    "button",
-    "input",
-    "select",
-    "textarea",
-    "image",
-    "video",
-    "audio",
-    "table",
-    "list",
-    "list_item",
-    "breadcrumb",
-    "card",
-    "code",
-    "form",
-    "modal",
-    "tooltip",
-    "tab",
-    "chip",
-    "badge",
-    "pagination",
-    "icon",
-    "svg",
-    "canvas",
-    "ad",
-    "title",
-    "paragraph",
-    "figure",
-    "label",
-    "checkbox",
-    "radio",
-    "switch",
-    "slider",
-    "progress",
-    "meter",
-    "map",
-    "unknown",
-]
+from typing import Dict, Any, Optional
 
 
-def guess_type(tag: str, role: Optional[str], attrs: Dict[str, str]) -> str:
-    t = tag.lower() if tag else ""
-    r = (role or "").lower()
+def guess_type(tag: Optional[str], role: Optional[str], attrs: Dict[str, Any]) -> str:
+    """
+    Classify element into a semantic type based on tag, role, and attributes.
 
-    # landmarks & structure
-    if t == "header" or r == "banner":
-        return "header"
-    if t == "footer" or r == "contentinfo":
-        return "footer"
-    if t == "nav" or r == "navigation":
-        return "nav"
-    if t in {"main", "section"} or r in {"region", "main"}:
-        return "section"
-    if t == "article" or r == "article":
-        return "article"
-    if t == "aside" or r == "complementary":
-        return "aside"
+    Args:
+        tag: HTML tag name (e.g., 'button', 'div')
+        role: ARIA role attribute
+        attrs: Dictionary of HTML attributes
 
-    # interactive
-    if t == "a" and attrs.get("href"):
-        return "link"
-    if t == "button" or r == "button":
+    Returns:
+        Semantic type string (e.g., 'button', 'input', 'text')
+    """
+    # Safely handle None values
+    tag = (tag or "").lower().strip()
+    role = (role or "").lower().strip()
+    attrs = attrs or {}
+
+    # Get common attributes
+    type_attr = (attrs.get("type") or "").lower()
+    class_str = (attrs.get("class") or "").lower()
+
+    # Button detection
+    if tag == "button" or role == "button":
         return "button"
-    if t in {"input"} or r in {"textbox", "searchbox", "combobox", "spinbutton"}:
-        itype = (attrs.get("type") or "").lower()
-        if itype in {"checkbox"}:
-            return "checkbox"
-        if itype in {"radio"}:
-            return "radio"
-        return "input"
-    if t == "select" or r == "combobox":
-        return "select"
-    if t == "textarea":
-        return "textarea"
-    if r in {"switch"}:
-        return "switch"
-    if r in {"slider"}:
-        return "slider"
-    if r in {"progressbar"}:
-        return "progress"
-    if r in {"tab"}:
-        return "tab"
+    if tag == "input" and type_attr in ("submit", "button", "reset"):
+        return "button"
+    if "btn" in class_str or "button" in class_str:
+        return "button"
 
-    # media/graphics
-    if t == "img" or r == "img":
+    # Input detection
+    if tag == "input" and type_attr in (
+        "text",
+        "email",
+        "password",
+        "tel",
+        "url",
+        "number",
+    ):
+        return "input"
+    if tag == "textarea":
+        return "input"
+    if role in ("textbox", "searchbox"):
+        return "input"
+
+    # Search
+    if tag == "input" and type_attr == "search":
+        return "search"
+    if role == "search" or "search" in class_str:
+        return "search"
+
+    # Checkbox/Radio
+    if tag == "input" and type_attr in ("checkbox", "radio"):
+        return "checkbox"
+    if role in ("checkbox", "radio", "switch"):
+        return "checkbox"
+
+    # Dropdown/Select
+    if tag == "select" or role in ("combobox", "listbox"):
+        return "dropdown"
+
+    # Link detection
+    if tag == "a" or role == "link":
+        return "link"
+
+    # Heading detection
+    if tag in ("h1", "h2", "h3", "h4", "h5", "h6") or role == "heading":
+        return "heading"
+
+    # Image detection
+    if tag == "img" or role == "img":
         return "image"
-    if t == "video":
-        return "video"
-    if t == "audio":
-        return "audio"
-    if t == "svg":
-        return "svg"
-    if t == "canvas":
-        return "canvas"
-    if t == "figure":
-        return "figure"
-    if t == "i" and "icon" in (attrs.get("class") or ""):
+    if tag == "picture" or tag == "figure":
+        return "image"
+
+    # Icon detection (heuristic)
+    if "icon" in class_str or tag in ("i", "svg"):
         return "icon"
 
-    # data/content containers
-    if t == "table" or r == "table":
-        return "table"
-    if t in {"ul", "ol"} or r in {"list"}:
-        return "list"
-    if t == "li" or r == "listitem":
-        return "list_item"
-    if t in {"h1", "h2", "h3", "h4", "h5", "h6"} or r in {"heading"}:
-        return "title"
-    if t == "p":
-        return "paragraph"
-    if t == "pre" or t == "code":
-        return "code"
-    if t == "form" or r == "form":
-        return "form"
-    if "breadcrumb" in (attrs.get("class") or ""):
-        return "breadcrumb"
-    if any(cls in (attrs.get("class") or "") for cls in ["card", "tile", "panel"]):
-        return "card"
-    if any(cls in (attrs.get("class") or "") for cls in ["chip", "tag", "pill"]):
-        return "chip"
-    if "badge" in (attrs.get("class") or ""):
-        return "badge"
-    if "pagination" in (attrs.get("class") or ""):
-        return "pagination"
+    # Video/Media
+    if tag in ("video", "audio") or role == "video":
+        return "video"
 
-    # simple ad heuristic
-    if any(k in (attrs.get("id") or "") for k in ["ad", "ads", "advert", "sponsor"]):
+    # Navigation
+    if tag == "nav" or role == "navigation":
+        return "navigation"
+    if "nav" in class_str or "menu" in class_str:
+        return "navigation"
+
+    # List
+    if tag in ("ul", "ol", "dl") or role in ("list", "listitem"):
+        return "list"
+
+    # Table
+    if tag == "table" or role in ("table", "grid"):
+        return "table"
+
+    # Form
+    if tag == "form" or role == "form":
+        return "form"
+
+    # Card/Panel
+    if role == "article" or tag == "article":
+        return "card"
+    if "card" in class_str or "panel" in class_str or "tile" in class_str:
+        return "card"
+
+    # Header
+    if tag == "header" or role == "banner":
+        return "header"
+    if "header" in class_str and "page-header" in class_str:
+        return "header"
+
+    # Footer
+    if tag == "footer" or role == "contentinfo":
+        return "footer"
+
+    # Modal/Dialog
+    if role in ("dialog", "alertdialog") or "modal" in class_str:
+        return "modal"
+
+    # Tooltip
+    if role == "tooltip" or "tooltip" in class_str or "popover" in class_str:
+        return "tooltip"
+
+    # Menu
+    if role in ("menu", "menubar", "menuitem"):
+        return "menu"
+
+    # Tab
+    if role in ("tab", "tablist", "tabpanel"):
+        return "tab"
+
+    # Badge/Label
+    if "badge" in class_str or "label" in class_str or "chip" in class_str:
+        return "badge"
+
+    # Ad detection
+    if "ad" in class_str or "advertisement" in class_str or "sponsor" in class_str:
         return "ad"
 
-    return "unknown"
+    # Logo
+    if "logo" in class_str or (
+        tag == "img" and "logo" in (attrs.get("alt") or "").lower()
+    ):
+        return "logo"
+
+    # Text blocks
+    if tag in ("p", "span", "div", "section", "main"):
+        # Check if it's likely a text container
+        if role == "text" or not role:
+            return "text"
+
+    # Default fallback
+    return tag or "unknown"
