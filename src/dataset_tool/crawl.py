@@ -1,6 +1,6 @@
-"""Crawling orchestration with multithreading support."""
+"""Crawling orchestration with multithreading/multiprocessing support."""
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional
 import csv
 import traceback
@@ -41,6 +41,7 @@ def crawl(
     do_ocr: bool = False,
     headless: bool = True,
     workers: int = 1,
+    use_processes: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Crawl URLs and collect annotations.
@@ -51,6 +52,7 @@ def crawl(
         do_ocr: Enable OCR processing
         headless: Run browser in headless mode
         workers: Number of parallel workers (1 = sequential)
+        use_processes: Use multiprocessing instead of multithreading (default: False)
 
     Returns:
         List of collected records
@@ -63,7 +65,12 @@ def crawl(
         return []
 
     print(f"Loaded {len(urls)} URLs")
-    print(f"Using {workers} worker(s)")
+    
+    if workers > 1:
+        mode = "process" if use_processes else "thread"
+        print(f"Using {workers} {mode}(s)")
+    else:
+        print(f"Using sequential execution")
 
     cfg = Config(
         out_dir=out_dir,
@@ -86,7 +93,11 @@ def crawl(
                 results.append(result)
     else:
         # Parallel execution
-        with ThreadPoolExecutor(max_workers=workers) as executor:
+        ExecutorClass = ProcessPoolExecutor if use_processes else ThreadPoolExecutor
+        with ExecutorClass(max_workers=workers) as executor:
+            actual_workers = executor._max_workers
+            executor_type = "ProcessPoolExecutor" if use_processes else "ThreadPoolExecutor"
+            print(f"{executor_type} initialized with {actual_workers} worker(s)")
             # Submit all tasks
             future_to_url = {
                 executor.submit(_collect_one_wrapper, url, cfg): url for url in urls

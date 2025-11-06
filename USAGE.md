@@ -184,18 +184,216 @@ Example `labels/train/page1.txt`:
 
 ## Training with YOLOv8
 
+### Quick Start
+
 ```bash
 # Install ultralytics
 pip install ultralytics
 
-# Train
-yolo train data=data/yolo/data.yaml model=yolov8n.pt epochs=100 imgsz=640
+# Train with default settings
+python scripts/train.py
 
-# Validate
-yolo val model=runs/detect/train/weights/best.pt data=data/yolo/data.yaml
+# Train with custom parameters
+python scripts/train.py --epochs 200 --batch 32 --imgsz 1280
+```
 
-# Predict
-yolo predict model=runs/detect/train/weights/best.pt source=test_image.png
+### Training Configuration
+
+Edit `configs/train_config.yaml` to customize all training parameters:
+
+```yaml
+# Model selection
+model: yolov8n.pt  # Options: yolov8n, yolov8s, yolov8m, yolov8l, yolov8x
+
+# Training parameters
+epochs: 100
+batch: 16
+imgsz: 640
+device: 0  # GPU device or 'cpu'
+
+# Optimization
+optimizer: auto
+lr0: 0.01
+momentum: 0.937
+weight_decay: 0.0005
+
+# Augmentation
+hsv_h: 0.015
+hsv_s: 0.7
+hsv_v: 0.4
+flipud: 0.0
+fliplr: 0.5
+mosaic: 1.0
+```
+
+### Training Examples
+
+```bash
+# Basic training (100 epochs, batch 16, 640px)
+python scripts/train.py
+
+# Larger model, more epochs
+python scripts/train.py --model yolov8m.pt --epochs 200
+
+# Higher resolution
+python scripts/train.py --imgsz 1280 --batch 8
+
+# Train on CPU
+python scripts/train.py --device cpu
+
+# Multi-GPU training
+python scripts/train.py --device 0,1,2,3
+
+# Resume interrupted training
+python scripts/train.py --resume
+
+# Custom configuration file
+python scripts/train.py --config configs/my_config.yaml
+
+# Check configuration without training
+python scripts/train.py --dry-run
+```
+
+### Model Selection
+
+| Model | Size | Speed | mAP | Use Case |
+|-------|------|-------|-----|----------|
+| yolov8n | 3MB | Fastest | Lowest | Real-time, edge devices |
+| yolov8s | 11MB | Very fast | Low | Mobile, embedded |
+| yolov8m | 26MB | Fast | Medium | General purpose |
+| yolov8l | 44MB | Moderate | High | High accuracy |
+| yolov8x | 68MB | Slow | Highest | Maximum accuracy |
+
+### Training Tips
+
+1. **Start with yolov8n**: Fast iterations for debugging
+2. **Increase batch size**: Use largest batch that fits in GPU memory
+3. **Higher resolution**: Use 1280 for better small object detection
+4. **Monitor training**: Check `runs/detect/webshot_ui/` for metrics
+5. **Early stopping**: Training stops if no improvement for 50 epochs
+6. **Resume training**: Use `--resume` if interrupted
+
+### Output Structure
+
+After training, check `runs/detect/webshot_ui/`:
+
+```
+runs/detect/webshot_ui/
+├── weights/
+│   ├── best.pt      # Best checkpoint
+│   └── last.pt      # Last checkpoint
+├── results.csv      # Training metrics
+├── results.png      # Training curves
+├── confusion_matrix.png
+├── val_batch0_pred.jpg  # Validation predictions
+└── ...
+```
+
+### Validation
+
+```bash
+# Validate best model
+yolo val model=runs/detect/webshot_ui/weights/best.pt data=data/yolo/data.yaml
+
+# Validate on specific split
+yolo val model=runs/detect/webshot_ui/weights/best.pt data=data/yolo/data.yaml split=test
+```
+
+### Prediction
+
+```bash
+# Single image
+yolo predict model=runs/detect/webshot_ui/weights/best.pt source=test.png
+
+# Directory of images
+yolo predict model=runs/detect/webshot_ui/weights/best.pt source=test_images/
+
+# With confidence threshold
+yolo predict model=runs/detect/webshot_ui/weights/best.pt source=test.png conf=0.5
+
+# Save results
+yolo predict model=runs/detect/webshot_ui/weights/best.pt source=test.png save=true
+```
+
+### Advanced Training
+
+#### Transfer Learning
+
+```bash
+# Fine-tune pre-trained model
+python scripts/train.py --model yolov8n.pt --epochs 50 --freeze 10
+```
+
+#### Custom Augmentation
+
+Edit `configs/train_config.yaml`:
+
+```yaml
+# Aggressive augmentation
+degrees: 5.0      # rotation
+translate: 0.2    # translation
+scale: 0.9        # scaling
+shear: 2.0        # shearing
+mosaic: 1.0       # mosaic
+mixup: 0.1        # mixup
+```
+
+#### Learning Rate Scheduling
+
+```yaml
+lr0: 0.01         # initial LR
+lrf: 0.01         # final LR
+cos_lr: true      # cosine LR scheduler
+```
+
+### Troubleshooting Training
+
+**Out of memory:**
+```bash
+# Reduce batch size
+python scripts/train.py --batch 8
+
+# Reduce image size
+python scripts/train.py --imgsz 416
+```
+
+**Training too slow:**
+```bash
+# More dataloader workers
+python scripts/train.py --workers 16
+
+# Cache dataset to RAM
+python scripts/train.py --cache ram
+```
+
+**Poor accuracy:**
+- Train longer (200-300 epochs)
+- Use larger model (yolov8m or yolov8l)
+- Increase image size (1280)
+- Check class balance with `wsd validate`
+- Review visualizations for annotation quality
+
+**Model not converging:**
+- Lower learning rate: `--lr0 0.001`
+- Check dataset quality
+- Verify data.yaml paths are correct
+- Ensure sufficient training data (100+ images)
+
+### CLI Training Command
+
+You can also use the built-in CLI:
+
+```bash
+# Basic training through CLI
+wsd train --data data/yolo/data.yaml --epochs 100
+
+# With all options
+wsd train --data data/yolo/data.yaml \
+          --model yolov8m.pt \
+          --epochs 200 \
+          --batch 32 \
+          --imgsz 1280 \
+          --device 0
 ```
 
 ## Advanced Configuration

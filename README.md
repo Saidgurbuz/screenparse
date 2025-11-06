@@ -24,6 +24,9 @@ wsd pipeline --urls urls.csv --workers 4
 
 # Train YOLO
 yolo train data=data/yolo/data.yaml model=yolov8n.pt epochs=100
+
+# Or use the training script
+python scripts/train.py --epochs 100 --batch 16
 ```
 
 ## Installation
@@ -66,6 +69,11 @@ wsd yolo --raw-dir data/raw --yolo-dir data/yolo
 
 # 5. Validate dataset
 wsd validate --yolo-dir data/yolo
+
+# 6. Train model
+python scripts/train.py
+# or
+wsd train --data data/yolo/data.yaml --epochs 100
 ```
 
 ## Performance

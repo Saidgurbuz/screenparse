@@ -23,6 +23,38 @@ def _xywh_to_lt_rb(r: Dict[str, int]):
     return [int(r["x"]), int(r["y"]), int(r["x"] + r["w"]), int(r["y"] + r["h"])]
 
 
+def navigate_resilient(page, url, nav_timeout_ms):
+    # Try the least strict first; escalate only if needed
+    waits = ["commit", "domcontentloaded", "load"]
+    last_exc = None
+    for attempt in range(3):
+        for w in waits:
+            try:
+                resp = page.goto(url, wait_until=w, timeout=nav_timeout_ms)
+                # Small settle to let async content paint without hanging forever.
+                page.wait_for_timeout(500)
+                return resp
+            except Exception as e:
+                last_exc = e
+        # Backoff & retry a reload of final URL (handles client-side redirects)
+        try:
+            page.reload(wait_until="domcontentloaded", timeout=nav_timeout_ms)
+            page.wait_for_timeout(500)
+            return None
+        except Exception as e:
+            last_exc = e
+            page.wait_for_timeout(750 * (attempt + 1))
+    # Give one last shot via JS redirect in case of weird interstitial
+    try:
+        page.evaluate(f"location.href = {repr(url)}")
+        page.wait_for_load_state("domcontentloaded", timeout=nav_timeout_ms)
+        page.wait_for_timeout(500)
+        return None
+    except Exception:
+        if last_exc:
+            raise last_exc
+        raise
+
 def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
     ensure_dir(cfg.out_dir)
     url_c = canonicalize_url(url)
@@ -45,6 +77,8 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
             device_scale_factor=cfg.viewport.device_scale_factor,
             locale=cfg.locale,
             color_scheme=cfg.color_scheme,
+            ignore_https_errors=True,
+            user_agent=getattr(cfg, "user_agent", None) ,
         )
         page = ctx.new_page()
         page.add_style_tag(
@@ -53,8 +87,13 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
             html { scroll-behavior: auto !important; }
         """
         )
+        nav_timeout_ms = getattr(getattr(cfg, "timeouts", object()), "navigation_ms", 30000)
+        page.set_default_navigation_timeout(nav_timeout_ms)
+        page.set_default_timeout(max(nav_timeout_ms, 30000))
 
-        page.goto(url_c, wait_until="networkidle", timeout=10000)
+        # page.goto(url_c, wait_until="networkidle", timeout=10000)
+        response = navigate_resilient(page, url_c, nav_timeout_ms)
+        final_url = page.url
         page.wait_for_timeout(cfg.network_idle_wait_ms)
 
         # ============================================================
@@ -277,6 +316,10 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
             "css_to_image_scale": (
                 1 if scale_used == "css" else cfg.viewport.device_scale_factor
             ),
+            "requested_url": url_c,
+            "final_url": final_url,
+            "status": response.status if response else None,
+            "redirected": final_url != url_c,
         }
 
         if cfg.capture_full_page:

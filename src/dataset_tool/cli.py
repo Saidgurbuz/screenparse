@@ -1,4 +1,5 @@
 import argparse, os, glob, json
+import sys
 from typing import Optional
 from .config import Config
 from .crawl import crawl
@@ -231,6 +232,59 @@ def cmd_pipeline(args):
     )
 
 
+def cmd_train(args):
+    """Train YOLO model with specified configuration."""
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        print("ERROR: ultralytics not installed. Install with:")
+        print("  pip install ultralytics")
+        sys.exit(1)
+
+    # Validate data.yaml
+    if not os.path.exists(args.data):
+        print(f"ERROR: Data file not found: {args.data}")
+        print("\nRun the pipeline first:")
+        print("  wsd pipeline --urls urls.csv")
+        sys.exit(1)
+
+    print("\n" + "=" * 60)
+    print("STARTING YOLO TRAINING")
+    print("=" * 60)
+    print(f"Model:      {args.model}")
+    print(f"Dataset:    {args.data}")
+    print(f"Epochs:     {args.epochs}")
+    print(f"Batch:      {args.batch}")
+    print(f"Image size: {args.imgsz}")
+    print(f"Device:     {args.device}")
+    print("=" * 60 + "\n")
+
+    model = YOLO(args.model)
+    results = model.train(
+        data=args.data,
+        epochs=args.epochs,
+        batch=args.batch,
+        imgsz=args.imgsz,
+        device=args.device,
+        workers=args.workers,
+        project=args.project,
+        name=args.name,
+        exist_ok=args.exist_ok,
+        pretrained=True,
+        optimizer=args.optimizer,
+        lr0=args.lr0,
+        patience=args.patience,
+        save=True,
+        plots=True,
+        verbose=True,
+    )
+
+    print("\n" + "=" * 60)
+    print("TRAINING COMPLETE!")
+    print("=" * 60)
+    print(f"Weights saved to: {args.project}/{args.name}/weights/")
+
+
 def main():
     p = argparse.ArgumentParser(
         prog="wsd", description="Web screenshot dataset toolkit"
@@ -346,6 +400,23 @@ def main():
         help="Number of parallel workers (default: 4)",
     )
     pp.set_defaults(func=cmd_pipeline)
+
+    # train command
+    pt = sub.add_parser("train", help="Train YOLO model")
+    pt.add_argument("--data", default="data/yolo/data.yaml", help="Path to data.yaml")
+    pt.add_argument("--model", default="yolov8n.pt", help="Model to train")
+    pt.add_argument("--epochs", type=int, default=100, help="Number of epochs")
+    pt.add_argument("--batch", type=int, default=16, help="Batch size")
+    pt.add_argument("--imgsz", type=int, default=640, help="Image size")
+    pt.add_argument("--device", default="0", help="Device (0, cpu, 0,1,2,3)")
+    pt.add_argument("--workers", type=int, default=8, help="Dataloader workers")
+    pt.add_argument("--project", default="runs/detect", help="Project directory")
+    pt.add_argument("--name", default="webshot_ui", help="Experiment name")
+    pt.add_argument("--optimizer", default="auto", help="Optimizer")
+    pt.add_argument("--lr0", type=float, default=0.01, help="Initial learning rate")
+    pt.add_argument("--patience", type=int, default=50, help="Early stopping patience")
+    pt.add_argument("--exist-ok", action="store_true", help="Overwrite existing project")
+    pt.set_defaults(func=cmd_train)
 
     args = p.parse_args()
     args.func(args)
