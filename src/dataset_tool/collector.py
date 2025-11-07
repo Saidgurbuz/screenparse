@@ -242,7 +242,7 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
         # === FILTER ELEMENTS - Import and use advanced filtering ===
         from .filtering import filter_elements, analyze_filtering_impact
 
-        print(f"  Collected {len(all_elements)} raw elements")
+        # print(f"  Collected {len(all_elements)} raw elements")
 
         # Save unfiltered if requested (for debugging)
         if cfg.filter_config.save_unfiltered:
@@ -261,22 +261,22 @@ def collect_one(url: str, cfg: Config) -> Dict[str, Any]:
         # Analyze filtering impact
         stats = analyze_filtering_impact(all_elements, filtered_elements)
 
-        if stats["protected_removed"] > 0:
-            print(
-                f"  ⚠️  WARNING: {stats['protected_removed']} protected elements were filtered!"
-            )
-            print(f"     Types: {stats['protected_removed_types']}")
+        # if stats["protected_removed"] > 0:
+        #     print(
+        #         f"  ⚠️  WARNING: {stats['protected_removed']} protected elements were filtered!"
+        #     )
+        #     print(f"     Types: {stats['protected_removed_types']}")
 
-        print(
-            f"  Final: {len(filtered_elements)} elements (removed {stats['total_removed']}, {stats['removal_rate']*100:.1f}%)"
-        )
+        # print(
+        #     f"  Final: {len(filtered_elements)} elements (removed {stats['total_removed']}, {stats['removal_rate']*100:.1f}%)"
+        # )
 
-        # Show what was removed by type
-        if stats["removed_types"]:
-            top_removed = sorted(
-                stats["removed_types"].items(), key=lambda x: x[1], reverse=True
-            )[:5]
-            print(f"  Top removed types: {dict(top_removed)}")
+        # # Show what was removed by type
+        # if stats["removed_types"]:
+        #     top_removed = sorted(
+        #         stats["removed_types"].items(), key=lambda x: x[1], reverse=True
+        #     )[:5]
+        #     print(f"  Top removed types: {dict(top_removed)}")
 
         all_elements = filtered_elements
 
