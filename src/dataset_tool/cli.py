@@ -21,6 +21,19 @@ def cmd_crawl(args):
     cfg = _default_cfg(args)
     cfg.capture_full_page = args.full_page
     cfg.filter_config.save_unfiltered = args.save_unfiltered
+
+    # Validate worker count
+    if args.workers < 1:
+        print("ERROR: --workers must be >= 1")
+        sys.exit(1)
+
+    if args.workers > 1:
+        print(f"NOTE: Using {args.workers} worker processes with persistent browsers")
+        print(f"      Each worker maintains its own browser instance")
+        print(
+            f"      Optimal for: {args.workers * 10}-{args.workers * 50} URLs per worker"
+        )
+
     crawl(
         args.urls,
         out_dir=cfg.out_dir,
@@ -119,6 +132,11 @@ def cmd_pipeline(args):
     cfg.capture_full_page = args.full_page
     cfg.filter_config.save_unfiltered = args.save_unfiltered
 
+    # Validate worker count
+    if args.workers < 1:
+        print("ERROR: --workers must be >= 1")
+        sys.exit(1)
+
     # Step 1: Crawl
     print("\n[1/4] Crawling URLs...")
     crawl(
@@ -158,10 +176,11 @@ def cmd_pipeline(args):
     images = sorted(glob.glob(os.path.join(cfg.out_dir, "*.png")))
 
     # Parallel visualization
-    if args.workers > 1:
+    if args.viz_workers > 1:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        print(f"Using {args.viz_workers} threads for visualization")
+        with ThreadPoolExecutor(max_workers=args.viz_workers) as executor:
             futures = []
             for img in images:
                 stem = os.path.splitext(img)[0]
@@ -313,8 +332,8 @@ def main():
     pc.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="Number of parallel workers (default: 1 = sequential)",
+        default=4,
+        help="Number of parallel workers (default: 4)",
     )
     pc.set_defaults(func=cmd_crawl)
 
@@ -396,8 +415,14 @@ def main():
     pp.add_argument(
         "--workers",
         type=int,
-        default=4,
-        help="Number of parallel workers (default: 4)",
+        default=8,
+        help="Number of parallel workers (default: 8)",
+    )
+    pp.add_argument(
+        "--viz-workers",
+        type=int,
+        default=4,  # Visualization is less intensive
+        help="Number of parallel threads for visualization (default: 4)",
     )
     pp.set_defaults(func=cmd_pipeline)
 
@@ -415,7 +440,9 @@ def main():
     pt.add_argument("--optimizer", default="auto", help="Optimizer")
     pt.add_argument("--lr0", type=float, default=0.01, help="Initial learning rate")
     pt.add_argument("--patience", type=int, default=50, help="Early stopping patience")
-    pt.add_argument("--exist-ok", action="store_true", help="Overwrite existing project")
+    pt.add_argument(
+        "--exist-ok", action="store_true", help="Overwrite existing project"
+    )
     pt.set_defaults(func=cmd_train)
 
     args = p.parse_args()

@@ -42,3 +42,42 @@ def safe_stem_from_url(url: str) -> str:
 
 def rect_to_int(r):
     return {k: int(round(v)) for k, v in r.items()}
+
+
+def get_processed_url_stems(out_dir: str) -> set:
+    """
+    Get set of URL stems for already-processed URLs.
+
+    Scans output directory for .png files and extracts URL stems
+    from filenames (format: stem-HASH.png).
+
+    Args:
+        out_dir: Directory containing processed files
+
+    Returns:
+        Set of URL stems (strings)
+    """
+    import os
+    import glob
+
+    if not os.path.exists(out_dir):
+        return set()
+
+    processed_stems = set()
+
+    # Find all .png files (screenshot files)
+    png_files = glob.glob(os.path.join(out_dir, "*.png"))
+
+    for png_file in png_files:
+        # Extract stem from filename: stem-HASH.png
+        basename = os.path.basename(png_file)
+        if basename.endswith(".png"):
+            # Remove .png suffix
+            name_without_ext = basename[:-4]  # len(".png") == 4
+            # Stem is everything before the last hyphen
+            parts = name_without_ext.rsplit("-", 1)
+            if len(parts) == 2:
+                url_stem = parts[0]
+                processed_stems.add(url_stem)
+
+    return processed_stems

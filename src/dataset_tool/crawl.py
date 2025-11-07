@@ -1,13 +1,17 @@
-"""Crawling orchestration with multithreading/multiprocessing support."""
+"""Crawling orchestration with optimized multiprocessing support."""
 
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional
 import csv
-import traceback
+import math
 from tqdm import tqdm
-from .collector import collect_one
 from .config import Config
-from .utils import ensure_dir
+from .utils import (
+    ensure_dir,
+    get_processed_url_stems,
+    canonicalize_url,
+    safe_stem_from_url,
+)
 
 
 def _load_urls(path: str) -> List[str]:
@@ -21,18 +25,10 @@ def _load_urls(path: str) -> List[str]:
     return urls
 
 
-def _collect_one_wrapper(
-    url: str, cfg: Config
-) -> tuple[str, Optional[Dict[str, Any]], Optional[Exception]]:
-    """Wrapper for collect_one that catches exceptions."""
-    try:
-        result = collect_one(url, cfg)
-        return (url, result, None)
-    except Exception as e:
-        # Capture full traceback for debugging
-        tb = traceback.format_exc()
-        error_msg = f"{type(e).__name__}: {str(e)}\n{tb}"
-        return (url, None, error_msg)
+def _chunk_urls(urls: List[str], num_chunks: int) -> List[List[str]]:
+    """Split URLs into roughly equal chunks for worker processes."""
+    chunk_size = math.ceil(len(urls) / num_chunks)
+    return [urls[i : i + chunk_size] for i in range(0, len(urls), chunk_size)]
 
 
 def crawl(
@@ -41,18 +37,21 @@ def crawl(
     do_ocr: bool = False,
     headless: bool = True,
     workers: int = 1,
-    use_processes: bool = False,
 ) -> List[Dict[str, Any]]:
     """
-    Crawl URLs and collect annotations.
+    Crawl URLs and collect annotations with optimized parallelization.
+
+    Key improvements:
+    - Each worker process maintains a persistent browser
+    - URLs are batched to minimize inter-process communication
+    - Scales efficiently to 32-256 CPU cores
 
     Args:
         urls_file: Path to CSV file with URLs
         out_dir: Output directory for raw data
         do_ocr: Enable OCR processing
         headless: Run browser in headless mode
-        workers: Number of parallel workers (1 = sequential)
-        use_processes: Use multiprocessing instead of multithreading (default: False)
+        workers: Number of parallel worker processes
 
     Returns:
         List of collected records
@@ -65,12 +64,34 @@ def crawl(
         return []
 
     print(f"Loaded {len(urls)} URLs")
-    
-    if workers > 1:
-        mode = "process" if use_processes else "thread"
-        print(f"Using {workers} {mode}(s)")
-    else:
-        print(f"Using sequential execution")
+
+    # Check for already-processed URLs using stem matching
+    processed_stems = get_processed_url_stems(out_dir)
+
+    if processed_stems:
+        print(f"Found {len(processed_stems)} already-processed URLs in {out_dir}")
+
+        # Filter out already-processed URLs
+        urls_to_process = []
+        skipped_count = 0
+
+        for url in urls:
+            url_canonical = canonicalize_url(url)
+            url_stem = safe_stem_from_url(url_canonical)
+
+            if url_stem in processed_stems:
+                skipped_count += 1
+            else:
+                urls_to_process.append(url)
+
+        print(f"Skipping {skipped_count} already-processed URLs")
+        print(f"Remaining: {len(urls_to_process)} URLs to process")
+
+        urls = urls_to_process
+
+        if not urls:
+            print("All URLs have already been processed!")
+            return []
 
     cfg = Config(
         out_dir=out_dir,
@@ -82,47 +103,79 @@ def crawl(
     errors = []
 
     if workers == 1:
-        # Sequential execution
-        for url in tqdm(urls, desc="Crawling"):
-            url_str, result, error = _collect_one_wrapper(url, cfg)
-            if error:
-                print(f"\n✗ {url_str}: {error}")
-                errors.append((url_str, error))
-            else:
-                print(f"✓ {url_str}")
-                results.append(result)
+        # Sequential execution with single persistent browser
+        print("Using sequential execution (single browser)")
+        from .worker import BrowserWorker
+
+        with BrowserWorker(worker_id=0, cfg=cfg) as worker:
+            for url in tqdm(urls, desc="Crawling"):
+                url_str, result, error = worker.process_url(url)
+                if error:
+                    print(f"\n✗ {url_str}: {error.split(chr(10))[0][:100]}")
+                    errors.append((url_str, error))
+                else:
+                    results.append(result)
+
     else:
-        # Parallel execution
-        ExecutorClass = ProcessPoolExecutor if use_processes else ThreadPoolExecutor
-        with ExecutorClass(max_workers=workers) as executor:
-            actual_workers = executor._max_workers
-            executor_type = "ProcessPoolExecutor" if use_processes else "ThreadPoolExecutor"
-            print(f"{executor_type} initialized with {actual_workers} worker(s)")
-            # Submit all tasks
-            future_to_url = {
-                executor.submit(_collect_one_wrapper, url, cfg): url for url in urls
+        # Parallel execution with worker pool
+        print(f"Using {workers} worker processes (each with persistent browser)")
+
+        # Split URLs into batches for workers
+        url_batches = _chunk_urls(urls, workers)
+        actual_workers = len(url_batches)
+        print(f"URL batches: {[len(batch) for batch in url_batches]}")
+
+        # Import worker function
+        from .worker import worker_process_urls
+
+        # Process in parallel
+        with ProcessPoolExecutor(
+            max_workers=actual_workers,
+            mp_context=None,  # Use default (usually 'spawn' on Linux/Mac, safest for Playwright)
+        ) as executor:
+            # Submit all batches
+            future_to_batch = {
+                executor.submit(worker_process_urls, worker_id, batch, cfg): (
+                    worker_id,
+                    batch,
+                )
+                for worker_id, batch in tqdm(
+                    enumerate(url_batches),
+                    desc="Submitting batches",
+                    total=len(url_batches),
+                )
             }
 
-            # Process as they complete
+            # Collect results with progress tracking
             with tqdm(total=len(urls), desc="Crawling") as pbar:
-                for future in as_completed(future_to_url):
-                    url_str, result, error = future.result()
-                    if error:
-                        print(f"\n✗ {url_str}: {error}")
-                        errors.append((url_str, error))
-                    else:
-                        results.append(result)
-                    pbar.update(1)
+                for future in tqdm(
+                    as_completed(future_to_batch),
+                    desc="Processing",
+                    total=len(future_to_batch),
+                ):
+                    worker_id, batch = future_to_batch[future]
+                    try:
+                        batch_results = future.result()
+                        for url_str, result, error in batch_results:
+                            if error:
+                                errors.append((url_str, error))
+                            else:
+                                results.append(result)
+                            pbar.update(1)
+                    except Exception as e:
+                        # Worker process crashed
+                        print(f"\n✗ Worker {worker_id} crashed: {e}")
+                        for url in batch:
+                            errors.append((url, f"Worker crashed: {e}"))
+                        pbar.update(len(batch))
 
     print(f"\nCompleted: {len(results)} successful, {len(errors)} failed")
 
     if errors:
         print("\nFailed URLs:")
-        for url, error in errors[:10]:  # Show first 10
-            print(f"  - {url}:")
-            # Print first line of error
+        for url, error in errors[:10]:
             error_lines = str(error).split("\n")
-            print(f"    {error_lines[0][:150]}")
+            print(f"  - {url}: {error_lines[0][:150]}")
         if len(errors) > 10:
             print(f"  ... and {len(errors) - 10} more")
 
