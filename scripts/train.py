@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 try:
     from ultralytics import YOLO
+    from ultralytics.utils.plotting import plot_results  # <-- NEW (for live plots)
 except ImportError:
     print("ERROR: ultralytics not installed. Install with:")
     print("  pip install ultralytics")
@@ -104,6 +105,31 @@ def print_training_info(config: dict):
     print("=" * 70 + "\n")
 
 
+# ========================= NEW: live plotting helpers =========================
+def _safe_plot_results(save_dir: Path):
+    """Render results.png (and other plots) from results.csv if present."""
+    try:
+        csv = save_dir / "results.csv"
+        if csv.exists():
+            plot_results(file=csv, dir=save_dir)
+    except Exception as e:
+        print(f"[plot] failed: {e}")
+
+
+def make_epoch_plot_callback(every: int = 5):
+    """Return a callback that regenerates plots every N epochs."""
+
+    def _on_fit_epoch_end(trainer):
+        # trainer.epoch is 0-based; add 1 for human epoch number
+        if every <= 1 or (trainer.epoch + 1) % every == 0:
+            _safe_plot_results(Path(trainer.save_dir))
+
+    return _on_fit_epoch_end
+
+
+# ============================================================================
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Train YOLO model on webshot dataset",
@@ -146,6 +172,13 @@ Examples:
     parser.add_argument("--workers", type=int, help="Number of dataloader workers")
     parser.add_argument("--resume", action="store_true", help="Resume training")
     parser.add_argument("--dry-run", action="store_true", help="Print config and exit")
+    # NEW: control live plotting cadence (N epochs)
+    parser.add_argument(
+        "--plot-every",
+        type=int,
+        default=2,
+        help="Regenerate results.png every N epochs (1 = every epoch, 0 = disable)",
+    )
 
     args = parser.parse_args()
 
@@ -177,13 +210,23 @@ Examples:
     print(f"Loading model: {config['model']}")
     model = YOLO(config["model"])
 
+    # Register live-plotting callback (if enabled)
+    if args.plot_every != 0:
+        model.add_callback(
+            "on_fit_epoch_end", make_epoch_plot_callback(every=max(1, args.plot_every))
+        )
+
     # Extract training kwargs
     train_kwargs = {k: v for k, v in config.items() if k not in ["model", "task"]}
 
     # Start training
+    run_dir: Path | None = None
     print("\nStarting training...")
     try:
         results = model.train(**train_kwargs)
+        # capture run dir after trainer is initialized
+        if hasattr(model, "trainer"):
+            run_dir = Path(model.trainer.save_dir)
 
         print("\n" + "=" * 70)
         print("TRAINING COMPLETE!")
@@ -201,14 +244,34 @@ Examples:
         )
 
     except KeyboardInterrupt:
+        # On interrupt, try to find run directory and plot partial results
+        try:
+            if hasattr(model, "trainer"):
+                run_dir = Path(model.trainer.save_dir)
+        except Exception:
+            run_dir = None
         print("\n\nTraining interrupted by user")
-        sys.exit(0)
+
     except Exception as e:
         print(f"\n\nERROR during training: {e}")
         import traceback
 
         traceback.print_exc()
+        # Try to plot on errors too
+        try:
+            if hasattr(model, "trainer"):
+                run_dir = Path(model.trainer.save_dir)
+        except Exception:
+            run_dir = None
         sys.exit(1)
+
+    finally:
+        if run_dir:
+            _safe_plot_results(run_dir)
+            print(f"\n[plots] Wrote plots from current logs to: {run_dir}")
+
+    # normal exit
+    return
 
 
 if __name__ == "__main__":

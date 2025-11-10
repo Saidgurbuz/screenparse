@@ -1,14 +1,18 @@
-"""Export annotations in YOLO format."""
+"""Export annotations in YOLO format (parallel, streaming-friendly)."""
 
 import os
 import random
-import shutil
-from typing import List, Dict, Any, Tuple
+import hashlib
+from typing import List, Dict, Any, Tuple, Iterable, Optional
 from pathlib import Path
-from .utils import ensure_dir, save_json, load_json
+from tqdm import tqdm
+from multiprocessing import Pool, cpu_count
+from functools import partial
+from .utils import ensure_dir, load_json
 
-
-# Simplified YOLO class set - visually distinct UI elements
+# ============================================================
+# YOLO classes (unchanged)
+# ============================================================
 YOLO_CLASSES = [
     "button",
     "input",
@@ -41,10 +45,7 @@ YOLO_CLASSES = [
 def map_to_yolo_class(
     element_type: str, tag: str, attrs: Dict[str, str], inner_text: str = ""
 ) -> str:
-    """
-    Map detailed element type to simplified YOLO class.
-    Enhanced with better heuristics and text analysis.
-    """
+    """(unchanged)"""
     element_type = (element_type or "").lower()
     tag = (tag or "").lower()
     classes = (attrs.get("class") or "").lower()
@@ -58,13 +59,11 @@ def map_to_yolo_class(
         return "button"
 
     if element_type == "link":
-        # Check if it's styled as a button
         if "btn" in classes or "button" in classes:
             return "button"
         return "link"
 
     if element_type in {"input", "textarea"}:
-        # Distinguish search from regular input
         if "search" in classes or "search" in elem_id or attrs.get("type") == "search":
             return "search"
         return "input"
@@ -88,14 +87,11 @@ def map_to_yolo_class(
         return "text"
 
     if element_type == "image":
-        # Check if it's a logo
         if "logo" in classes or "logo" in elem_id or "brand" in classes:
             return "logo"
         return "image"
 
     if element_type in {"icon", "svg"}:
-        # Large SVGs might be images
-        # This will be size-checked in filtering
         return "icon"
 
     if element_type in {"video", "audio"}:
@@ -147,7 +143,6 @@ def map_to_yolo_class(
     # GENERIC/CONTAINER -> Try to infer from context
     # ============================================
     if element_type in {"section", "article", "aside", "main", "div", "container"}:
-        # Check classes/id for hints
         if "card" in classes or "panel" in classes or "tile" in classes:
             return "card"
         if "nav" in classes or "menu" in classes:
@@ -157,7 +152,6 @@ def map_to_yolo_class(
         if "footer" in classes:
             return "footer"
 
-        # Check if it contains button-like text
         if text and len(text) < 30:
             button_words = [
                 "click",
@@ -172,49 +166,171 @@ def map_to_yolo_class(
             if any(word in text for word in button_words):
                 return "button"
 
-        # Default to text for content containers
         return "text"
 
-    # ============================================
-    # FALLBACK
-    # ============================================
     if element_type == "figure":
         return "image"
 
     if element_type == "pagination":
         return "navigation"
 
-    # Final fallback
     return "text"
 
 
 def bbox_to_yolo_format(
     rect: Dict[str, int], img_width: int, img_height: int
 ) -> Tuple[float, float, float, float]:
-    """
-    Convert absolute bbox to YOLO format (normalized center_x, center_y, width, height).
-
-    Returns: (center_x, center_y, width, height) all in [0, 1]
-    """
+    """(unchanged)"""
     x, y, w, h = rect["x"], rect["y"], rect["w"], rect["h"]
-
-    # Convert to center coordinates
     center_x = x + w / 2.0
     center_y = y + h / 2.0
-
-    # Normalize to [0, 1]
-    center_x_norm = center_x / img_width
-    center_y_norm = center_y / img_height
-    width_norm = w / img_width
-    height_norm = h / img_height
-
-    # Clamp to valid range
-    center_x_norm = max(0.0, min(1.0, center_x_norm))
-    center_y_norm = max(0.0, min(1.0, center_y_norm))
-    width_norm = max(0.0, min(1.0, width_norm))
-    height_norm = max(0.0, min(1.0, height_norm))
-
+    center_x_norm = max(0.0, min(1.0, center_x / img_width))
+    center_y_norm = max(0.0, min(1.0, center_y / img_height))
+    width_norm = max(0.0, min(1.0, w / img_width))
+    height_norm = max(0.0, min(1.0, h / img_height))
     return center_x_norm, center_y_norm, width_norm, height_norm
+
+
+# ============================================================
+# Parallel/export infrastructure
+# ============================================================
+
+
+def _choose_split(
+    stem: str, train_ratio: float, val_ratio: float, test_ratio: float, seed: int
+) -> str:
+    """
+    Deterministic split selection using MD5 hash(seed + '/' + stem) -> [0,1).
+    Avoids needing to load all records into memory.
+    """
+    assert (
+        abs((train_ratio + val_ratio + test_ratio) - 1.0) < 1e-6
+    ), "Split ratios must sum to 1.0"
+    h = hashlib.md5(f"{seed}/{stem}".encode("utf-8")).hexdigest()
+    # Take first 15 hex chars -> int -> normalize (good enough uniformity)
+    r = int(h[:15], 16) / float(16**15)
+    if r < train_ratio:
+        return "train"
+    elif r < train_ratio + val_ratio:
+        return "val"
+    else:
+        return "test"
+
+
+def _scan_records(raw_dir: str) -> Iterable[Dict[str, str]]:
+    """
+    Streaming, single-pass directory scan using os.scandir (fast, low memory).
+    Yields dicts with paths for each valid record (meta+image+elements present).
+    """
+    # Expect files side-by-side: <stem>.meta.json, <stem>.png, <stem>.elements.json
+    with os.scandir(raw_dir) as it:
+        for entry in it:
+            # Extremely cheap filter: suffix match only (no stat call)
+            name = entry.name
+            if not name.endswith(".meta.json"):
+                continue
+            stem = name[:-10]  # remove '.meta.json'
+            img_path = os.path.join(raw_dir, f"{stem}.png")
+            elements_path = os.path.join(raw_dir, f"{stem}.elements.json")
+            meta_path = os.path.join(raw_dir, name)
+            if os.path.exists(img_path) and os.path.exists(elements_path):
+                yield {
+                    "stem": stem,
+                    "image": img_path,
+                    "elements": elements_path,
+                    "meta": meta_path,
+                }
+
+
+# Globals set in worker processes by _init_worker
+_G = {
+    "yolo_dir": None,
+    "class_to_id": None,
+    "seed": None,
+    "ratios": None,
+}
+
+
+def _init_worker(
+    yolo_dir: str,
+    class_to_id: Dict[str, int],
+    seed: int,
+    ratios: Tuple[float, float, float],
+):
+    _G["yolo_dir"] = yolo_dir
+    _G["class_to_id"] = class_to_id
+    _G["seed"] = seed
+    _G["ratios"] = ratios
+
+
+def _process_one(
+    rec: Dict[str, str],
+) -> Tuple[bool, str, int, Dict[str, int], str, Optional[str]]:
+    """
+    Worker: converts one PNG to JPG, writes label file, returns stats.
+
+    Returns:
+        (ok, split_name, num_annotations, class_counts_dict, stem, error_message_if_any)
+    """
+    try:
+        from PIL import Image  # import inside worker to avoid preload cost in parent
+
+        # Decide split deterministically
+        train_ratio, val_ratio, test_ratio = _G["ratios"]
+        split = _choose_split(
+            rec["stem"], train_ratio, val_ratio, test_ratio, _G["seed"]
+        )
+
+        # Load data
+        elements = load_json(rec["elements"])
+        meta = load_json(rec["meta"])
+        img_w = meta["viewport"]["w"]
+        img_h = meta["viewport"]["h"]
+
+        # Convert image to JPG
+        img_dest = os.path.join(_G["yolo_dir"], "images", split, f"{rec['stem']}.jpg")
+        # Avoid partial writes
+        tmp_img_dest = img_dest + ".tmp"
+
+        with Image.open(rec["image"]) as img:
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            img.save(tmp_img_dest, "JPEG", quality=95, optimize=True)
+        os.replace(tmp_img_dest, img_dest)
+
+        # Convert annotations
+        class_counts_local = {cls: 0 for cls in YOLO_CLASSES}
+        label_lines: List[str] = []
+        for el in elements:
+            el_type = el.get("type", "unknown")
+            tag = el.get("tag", "")
+            attrs = el.get("attrs", {})
+            inner_text = el.get("inner_text", "")
+
+            yolo_class = map_to_yolo_class(el_type, tag, attrs, inner_text)
+            if yolo_class not in _G["class_to_id"]:
+                continue
+
+            class_id = _G["class_to_id"][yolo_class]
+            cx, cy, w, h = bbox_to_yolo_format(el["rect"], img_w, img_h)
+            if w <= 0 or h <= 0:
+                continue
+
+            label_lines.append(f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
+            class_counts_local[yolo_class] += 1
+
+        # Write label file (YOLO expects file even if empty)
+        label_dest = os.path.join(_G["yolo_dir"], "labels", split, f"{rec['stem']}.txt")
+        tmp_label_dest = label_dest + ".tmp"
+        with open(tmp_label_dest, "w") as f:
+            if label_lines:
+                f.write("\n".join(label_lines))
+        os.replace(tmp_label_dest, label_dest)
+
+        return True, split, len(label_lines), class_counts_local, rec["stem"], None
+
+    except Exception as e:
+        return False, "unknown", 0, {}, rec["stem"], str(e)
 
 
 def export_yolo_dataset(
@@ -224,133 +340,95 @@ def export_yolo_dataset(
     val_ratio: float = 0.2,
     test_ratio: float = 0.1,
     seed: int = 42,
+    workers: Optional[int] = None,
+    chunksize: int = 64,
 ):
     """
     Export collected data to YOLO format with train/val/test splits.
 
+    ⚡ Parallel + streaming:
+    - Uses os.scandir for fast, low-memory scanning (handles tens of millions).
+    - Deterministic per-file split via hashing (no global shuffle needed).
+    - Multiprocessing for image conversion and label writing.
+
     Directory structure:
         yolo_dir/
-            images/
-                train/
-                val/
-                test/
-            labels/
-                train/
-                val/
-                test/
+            images/{train,val,test}/
+            labels/{train,val,test}/
             data.yaml
             classes.txt
+            STATS.txt
     """
+    # Seed only used for deterministic split hashing
     random.seed(seed)
 
-    # Create directory structure
+    # Prepare output structure
     for split in ["train", "val", "test"]:
         ensure_dir(os.path.join(yolo_dir, "images", split))
         ensure_dir(os.path.join(yolo_dir, "labels", split))
 
-    # Find all collected pages
-    records = []
-    for fname in os.listdir(raw_dir):
-        if fname.endswith(".meta.json"):
-            stem = fname.replace(".meta.json", "")
-            img_path = os.path.join(raw_dir, f"{stem}.png")
-            elements_path = os.path.join(raw_dir, f"{stem}.elements.json")
-
-            if os.path.exists(img_path) and os.path.exists(elements_path):
-                records.append(
-                    {
-                        "stem": stem,
-                        "image": img_path,
-                        "elements": elements_path,
-                        "meta": os.path.join(raw_dir, fname),
-                    }
-                )
-
-    if not records:
-        print("No records found in", raw_dir)
-        return
-
-    # Shuffle and split
-    random.shuffle(records)
-    n = len(records)
-    n_train = int(n * train_ratio)
-    n_val = int(n * val_ratio)
-
-    splits = {
-        "train": records[:n_train],
-        "val": records[n_train : n_train + n_val],
-        "test": records[n_train + n_val :],
-    }
-
-    # Build class to ID mapping
+    # Class mapping
     class_to_id = {cls: idx for idx, cls in enumerate(YOLO_CLASSES)}
 
-    # Process each split
-    stats = {"train": 0, "val": 0, "test": 0}
+    # Worker pool sizing
+    if workers is None:
+        workers = max(1, min(cpu_count() or 1, 128))
+    if workers < 1:
+        workers = 1
+
+    print("============================================================")
+    print("YOLO Export (parallel)")
+    print("============================================================")
+    print(f"Raw dir:            {raw_dir}")
+    print(f"YOLO out dir:       {yolo_dir}")
+    print(f"Workers:            {workers}")
+    print(f"Task chunk size:    {chunksize}")
+    print(f"Split ratios:       train={train_ratio} val={val_ratio} test={test_ratio}")
+    print("Scanning and exporting...")
+
+    # Stats
+    split_image_counts = {"train": 0, "val": 0, "test": 0}
+    split_ann_counts = {"train": 0, "val": 0, "test": 0}
     class_counts = {cls: 0 for cls in YOLO_CLASSES}
+    total_processed = 0
+    total_errors = 0
 
-    for split_name, split_records in splits.items():
-        print(f"\nProcessing {split_name} split ({len(split_records)} images)...")
+    # Stream scan -> process in parallel
+    iterable = _scan_records(raw_dir)
 
-        for rec in split_records:
-            try:
-                # Load data
-                elements = load_json(rec["elements"])
-                meta = load_json(rec["meta"])
+    try:
+        with Pool(
+            processes=workers,
+            initializer=_init_worker,
+            initargs=(
+                yolo_dir,
+                class_to_id,
+                seed,
+                (train_ratio, val_ratio, test_ratio),
+            ),
+            maxtasksperchild=1000,
+        ) as pool:
+            # imap_unordered lazily consumes the generator; no giant queues
+            for ok, split, n_anns, class_counts_local, stem, err in tqdm(
+                pool.imap_unordered(_process_one, iterable, chunksize=chunksize),
+                desc="Exporting",
+                unit="file",
+            ):
+                if ok:
+                    split_image_counts[split] += 1
+                    split_ann_counts[split] += n_anns
+                    for k, v in class_counts_local.items():
+                        class_counts[k] += v
+                else:
+                    total_errors += 1
+                    tqdm.write(f"[WARN] {stem}: {err}")
+                total_processed += 1
+    except KeyboardInterrupt:
+        print("\nInterrupted by user, writing partial stats...")
 
-                # Get image dimensions (viewport-only now)
-                img_w = meta["viewport"]["w"]
-                img_h = meta["viewport"]["h"]
-
-                # Copy image (convert PNG to JPG for YOLO)
-                img_dest = os.path.join(
-                    yolo_dir, "images", split_name, f"{rec['stem']}.jpg"
-                )
-
-                # Convert PNG to JPG
-                from PIL import Image
-
-                img = Image.open(rec["image"])
-                if img.mode == "RGBA":
-                    # Convert RGBA to RGB
-                    img = img.convert("RGB")
-                img.save(img_dest, "JPEG", quality=95)
-
-                # Convert annotations
-                label_lines = []
-                for el in elements:
-                    el_type = el.get("type", "unknown")
-                    tag = el.get("tag", "")
-                    attrs = el.get("attrs", {})
-                    inner_text = el.get("inner_text", "")
-
-                    yolo_class = map_to_yolo_class(el_type, tag, attrs, inner_text)
-
-                    if yolo_class not in class_to_id:
-                        continue
-
-                    class_id = class_to_id[yolo_class]
-                    cx, cy, w, h = bbox_to_yolo_format(el["rect"], img_w, img_h)
-
-                    # Skip degenerate boxes
-                    if w <= 0 or h <= 0:
-                        continue
-
-                    # YOLO format: class_id center_x center_y width height
-                    label_lines.append(f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
-                    class_counts[yolo_class] += 1
-
-                # Write label file
-                label_dest = os.path.join(
-                    yolo_dir, "labels", split_name, f"{rec['stem']}.txt"
-                )
-                with open(label_dest, "w") as f:
-                    f.write("\n".join(label_lines))
-
-                stats[split_name] += len(label_lines)
-
-            except Exception as e:
-                print(f"Error processing {rec['stem']}: {e}")
+    if total_processed == 0:
+        print("No records found (meta+image+elements) in", raw_dir)
+        return
 
     # Write data.yaml
     yaml_content = f"""# YOLO Dataset Configuration - Viewport-Only Screenshots
@@ -363,7 +441,6 @@ test: images/test
 nc: {len(YOLO_CLASSES)}
 names: {YOLO_CLASSES}
 """
-
     with open(os.path.join(yolo_dir, "data.yaml"), "w") as f:
         f.write(yaml_content)
 
@@ -372,38 +449,51 @@ names: {YOLO_CLASSES}
         for cls in YOLO_CLASSES:
             f.write(f"{cls}\n")
 
-    # Write detailed stats
-    stats_content = "# Dataset Statistics\n\n"
-    stats_content += f"Total images: {sum(len(s) for s in splits.values())}\n"
-    stats_content += f"Total annotations: {sum(stats.values())}\n\n"
+    # Write STATS
+    total_images = sum(split_image_counts.values())
+    total_annotations = sum(split_ann_counts.values())
+    stats_lines = []
+    stats_lines.append("# Dataset Statistics\n")
+    stats_lines.append(f"Total images: {total_images}\n")
+    stats_lines.append(f"Total annotations: {total_annotations}\n")
+    stats_lines.append(f"Total errors: {total_errors}\n\n")
 
-    stats_content += "## Split Distribution\n"
-    for split, count in stats.items():
-        stats_content += f"{split}: {len(splits[split])} images, {count} annotations\n"
+    stats_lines.append("## Split Distribution\n")
+    for s in ["train", "val", "test"]:
+        stats_lines.append(
+            f"{s}: {split_image_counts[s]} images, {split_ann_counts[s]} annotations\n"
+        )
 
-    stats_content += "\n## Class Distribution\n"
-    sorted_classes = sorted(class_counts.items(), key=lambda x: x[1], reverse=True)
-    for cls, count in sorted_classes:
-        if count > 0:
-            pct = 100 * count / sum(stats.values())
-            stats_content += f"{cls}: {count} ({pct:.1f}%)\n"
+    stats_lines.append("\n## Class Distribution\n")
+    nonzero = [(cls, c) for cls, c in class_counts.items() if c > 0]
+    nonzero.sort(key=lambda x: x[1], reverse=True)
+    for cls, c in nonzero:
+        pct = 100.0 * c / total_annotations if total_annotations > 0 else 0.0
+        stats_lines.append(f"{cls}: {c} ({pct:.1f}%)\n")
 
     with open(os.path.join(yolo_dir, "STATS.txt"), "w") as f:
-        f.write(stats_content)
+        f.write("".join(stats_lines))
 
-    # Print summary
+    # Console summary
     print("\n" + "=" * 60)
     print("YOLO Dataset Export Complete!")
     print("=" * 60)
     print(f"Output directory: {yolo_dir}")
-    print(f"Total images: {sum(len(s) for s in splits.values())}")
-    print(f"  Train: {len(splits['train'])} images ({stats['train']} annotations)")
-    print(f"  Val:   {len(splits['val'])} images ({stats['val']} annotations)")
-    print(f"  Test:  {len(splits['test'])} images ({stats['test']} annotations)")
+    print(f"Total images: {total_images}")
+    print(
+        f"  Train: {split_image_counts['train']} images ({split_ann_counts['train']} annotations)"
+    )
+    print(
+        f"  Val:   {split_image_counts['val']} images ({split_ann_counts['val']} annotations)"
+    )
+    print(
+        f"  Test:  {split_image_counts['test']} images ({split_ann_counts['test']} annotations)"
+    )
     print(f"Classes: {len(YOLO_CLASSES)}")
-    print(f"\nTop 5 classes:")
-    for cls, count in sorted_classes[:5]:
-        pct = 100 * count / sum(stats.values()) if sum(stats.values()) > 0 else 0
-        print(f"  {cls:15s}: {count:5d} ({pct:5.1f}%)")
+    if nonzero:
+        print("\nTop 5 classes:")
+        for cls, count in nonzero[:5]:
+            pct = 100 * count / total_annotations if total_annotations > 0 else 0
+            print(f"  {cls:15s}: {count:5d} ({pct:5.1f}%)")
     print(f"\nConfiguration saved to: {os.path.join(yolo_dir, 'data.yaml')}")
     print(f"Statistics saved to: {os.path.join(yolo_dir, 'STATS.txt')}")

@@ -119,6 +119,8 @@ def cmd_yolo(args):
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
         seed=args.seed,
+        workers=args.export_workers,
+        chunksize=args.export_chunksize,
     )
 
 
@@ -237,6 +239,8 @@ def cmd_pipeline(args):
         val_ratio=args.val_ratio,
         test_ratio=args.test_ratio,
         seed=args.seed,
+        workers=args.export_workers,
+        chunksize=args.export_chunksize,
     )
 
     print("\n" + "=" * 60)
@@ -384,6 +388,18 @@ def main():
     py.add_argument("--val-ratio", type=float, default=0.2, help="Val split ratio")
     py.add_argument("--test-ratio", type=float, default=0.1, help="Test split ratio")
     py.add_argument("--seed", type=int, default=42, help="Random seed for splits")
+    py.add_argument(
+        "--export-workers",
+        type=int,
+        default=os.cpu_count(),
+        help="Processes for YOLO export (default: all CPUs)",
+    )
+    py.add_argument(
+        "--export-chunksize",
+        type=int,
+        default=64,
+        help="Records per task handed to each worker (default: 16)",
+    )
     py.set_defaults(func=cmd_yolo)
 
     # pipeline (NEW)
@@ -424,12 +440,24 @@ def main():
         default=4,  # Visualization is less intensive
         help="Number of parallel threads for visualization (default: 4)",
     )
+    pp.add_argument(
+        "--export-workers",
+        type=int,
+        default=os.cpu_count(),
+        help="Processes for YOLO export (default: all CPUs)",
+    )
+    pp.add_argument(
+        "--export-chunksize",
+        type=int,
+        default=64,
+        help="Records per task handed to each worker (default: 64)",
+    )
     pp.set_defaults(func=cmd_pipeline)
 
     # train command
     pt = sub.add_parser("train", help="Train YOLO model")
     pt.add_argument("--data", default="data/yolo/data.yaml", help="Path to data.yaml")
-    pt.add_argument("--model", default="yolov8n.pt", help="Model to train")
+    pt.add_argument("--model", default="yolo11l.pt", help="Model to train")
     pt.add_argument("--epochs", type=int, default=100, help="Number of epochs")
     pt.add_argument("--batch", type=int, default=16, help="Batch size")
     pt.add_argument("--imgsz", type=int, default=640, help="Image size")

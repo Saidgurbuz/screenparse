@@ -3,12 +3,19 @@ import os, csv
 from typing import Dict, List, Tuple
 from PIL import Image
 import imagehash
+from tqdm import tqdm
 from .utils import ensure_dir
 
 
-def _phash(path: str) -> imagehash.ImageHash:
-    with Image.open(path) as im:
-        return imagehash.phash(im)
+def _phash(path: str, skip_count: list) -> imagehash.ImageHash:
+    try:
+        with Image.open(path) as im:
+            return imagehash.phash(im)
+    except (IOError, OSError, Image.DecompressionBombError) as e:
+        # Skip corrupted, empty, or problematic images
+        skip_count[0] += 1
+        print(f"Skipped {skip_count[0]} images so far (current: {path})")
+        return None
 
 
 def _hamming(a: imagehash.ImageHash, b: imagehash.ImageHash) -> int:
@@ -22,11 +29,20 @@ def find_duplicates(image_dir: str, distance_threshold: int = 8) -> List[List[st
         for f in os.listdir(image_dir)
         if f.lower().endswith((".png", ".jpg", ".jpeg"))
     ]
-    hashes: Dict[str, imagehash.ImageHash] = {p: _phash(p) for p in imgs}
+    hashes: Dict[str, imagehash.ImageHash] = {}
+    skip_count = [0]  # Use list to make it mutable
+    for p in tqdm(imgs, desc="Computing hashes"):
+        h = _phash(p, skip_count)
+        if h is not None:
+            hashes[p] = h
+
+    # Filter to only valid images
+    imgs = list(hashes.keys())
+
     # naive O(n^2) is fine for trials; switch to LSH later if needed
     visited = set()
     groups: List[List[str]] = []
-    for i, p in enumerate(imgs):
+    for i, p in enumerate(tqdm(imgs, desc="Finding duplicates")):
         if p in visited:
             continue
         group = [p]
