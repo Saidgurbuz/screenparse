@@ -103,7 +103,12 @@ def cmd_viz(args):
 def cmd_dedupe(args):
     from .dedupe import find_duplicates, write_groups_csv
 
-    groups = find_duplicates(args.image_dir, distance_threshold=args.threshold)
+    groups = find_duplicates(
+        args.image_dir,
+        distance_threshold=args.threshold,
+        workers=args.dedupe_workers,
+        chunksize=args.dedupe_chunksize,
+    )
     if args.csv:
         write_groups_csv(groups, args.csv)
         print(f"Saved groups CSV: {args.csv}")
@@ -378,9 +383,49 @@ def main():
         help="Hamming distance threshold (lower is stricter)",
     )
     pd.add_argument("--csv", default="data/dupes/dupe_groups.csv")
+    pd.add_argument(
+        "--dedupe-workers",
+        type=int,
+        default=os.cpu_count(),
+        help="Processes for dedupe (default: all CPUs)",
+    )
+    pd.add_argument(
+        "--dedupe-chunksize",
+        type=int,
+        default=64,
+        help="Task chunk size per worker (default: 64)",
+    )
     pd.set_defaults(func=cmd_dedupe)
 
-    # yolo export (NEW)
+    # vlm-label — relabel elements with a VLM
+    pl = sub.add_parser("vlm-label", help="Relabel UI elements with a VLM (Qwen3-VL via vLLM)")
+    pl.add_argument("--raw-dir", default="data/raw", help="Directory with *.png/*.elements.json/*.meta.json")
+    pl.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct", help="vLLM model id")
+    pl.add_argument("--batch-size", type=int, default=16, help="VLM micro-batch size")
+    pl.add_argument("--tp", dest="tensor_parallel_size", type=int, default=1, help="Tensor-parallel size")
+    pl.add_argument("--crops-dir", default="data/crops", help="Where to write element crops")
+    pl.add_argument("--limit", type=int, help="Limit number of screenshots (for smoke testing)")
+    pl.add_argument("--min-elem-size", type=int, default=3, help="Skip elements smaller than this (CSS px)")
+    pl.add_argument("--inplace-elements", action="store_true", help="Write vlm_label/vlm_conf back into *.elements.json")
+    pl.add_argument("--viz-dir", help="If set, write visualizations with predicted labels")
+    pl.add_argument("--viz-min-conf", type=float, default=0.0, help="Only render labels with confidence >= this")
+    def _cmd_vlm_label(args):
+        from .vlm_refine import label_dir
+        label_dir(
+            raw_dir=args.raw_dir,
+            model=args.model,
+            crops_dir=args.crops_dir,
+            batch_size=args.batch_size,
+            tensor_parallel_size=args.tensor_parallel_size,
+            limit_images=args.limit,
+            min_elem_size=args.min_elem_size,
+            inplace_elements=args.inplace_elements,
+            viz_dir=args.viz_dir,
+            viz_min_conf=args.viz_min_conf,
+        )
+    pl.set_defaults(func=_cmd_vlm_label)
+
+    # yolo export
     py = sub.add_parser("yolo", help="Export dataset to YOLO format")
     py.add_argument("--raw-dir", default="data/raw", help="Raw data directory")
     py.add_argument("--yolo-dir", default="data/yolo", help="YOLO output directory")

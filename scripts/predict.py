@@ -1,7 +1,7 @@
 # training/predict_folder.py
 """
 python scripts/predict.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui2/weights/best.pt \
+    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui6/weights/best.pt \
     --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
     --conf 0.21
 """
@@ -73,5 +73,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
     main()
