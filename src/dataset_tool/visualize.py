@@ -87,7 +87,7 @@ def visualize_one(
             r = e["rect"]
             if _should_skip(r, opts.min_box_area):
                 continue
-            cls = e.get("type") or e.get("tag") or "unknown"
+            cls = e.get("vlm_label") or e.get("type") or e.get("tag") or "unknown"
             color = _color_from_name(cls)
             x1, y1, x2, y2 = _rect_to_xyxy(r)
             # stroke

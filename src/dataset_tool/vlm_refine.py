@@ -313,13 +313,18 @@ def label_dir(
     tensor_parallel_size: int = 1,
     limit_images: Optional[int] = None,
     min_elem_size: int = 3,
-    inplace_elements: bool = False,
+    inplace_elements: bool = True,
     viz_dir: Optional[str] = None,
     viz_min_conf: float = 0.0,
+    screens_per_pass: int = 32,   # NEW: outer chunking to cap memory
 ) -> None:
     """
-    NEW: Build one global request list across ALL screenshots, then run vLLM in
-    large batches. Outputs are routed back to their (base, element_index).
+    Build requests in outer "passes" over at most `screens_per_pass` screenshots,
+    so a single vLLM micro-batch can still contain elements from multiple screens
+    without materializing the *entire* corpus at once.
+
+    Also speeds up indexing: each screenshot PNG is opened once and reused for
+    all element crops in that pass (avoids re-opening per element).
     """
     bases = list(_iter_screens(raw_dir))
     if limit_images:
@@ -342,80 +347,105 @@ def label_dir(
         if os.path.exists(sidecar_path):
             os.remove(sidecar_path)
 
-    # --- Global state for mapping and writing ---
     _ensure_dir(crops_dir)
+
+    # Global accumulators we fill pass-by-pass (keeps memory bounded):
     elements_by_base: Dict[str, List[Dict[str, Any]]] = {}
     page_png_by_base: Dict[str, str] = {}
     labels_by_base: Dict[str, List[Tuple[int, str, float]]] = {}
 
-    # These two hold the GLOBAL queue we will send to vLLM
-    all_reqs: List[Dict[str, Any]] = []
-    all_keys: List[Tuple[str, int]] = []  # (base, element_index)
+    # Helper: fast crop using an already opened PIL image
+    def _crop_from_open_image(im: Image.Image, r: Dict[str, int], scale: float, out_path: str, padding: int = 5) -> bool:
+        try:
+            W, H = im.size
+            x = int(round(r.get("x", 0) * scale))
+            y = int(round(r.get("y", 0) * scale))
+            w = int(round(r.get("w", 0) * scale))
+            h = int(round(r.get("h", 0) * scale))
+            # padding
+            x = max(0, x - padding)
+            y = max(0, y - padding)
+            w = min(W - x, w + 2 * padding)
+            h = min(H - y, h + 2 * padding)
+            if w < 2 or h < 2:
+                return False
+            im.crop((x, y, x + w, y + h)).save(out_path)
+            return True
+        except Exception:
+            return False
 
-    # 1) Index & build ALL requests (across screenshots)
-    for base in tqdm(bases, desc="Indexing elements for VLM"):
-        page_png = base + ".png"
-        elements_path = base + ".elements.json"
-        meta_path = base + ".meta.json"
+    # Process in outer passes to cap memory
+    for start in tqdm(range(0, len(bases), screens_per_pass), desc="Passes over screenshots"):
+        group = bases[start:start + screens_per_pass]
 
-        # Keep behavior: skip bases missing required artifacts
-        if not (os.path.exists(page_png) and os.path.exists(elements_path) and os.path.exists(meta_path)):
-            continue
+        # Build requests for this pass only
+        all_reqs: List[Dict[str, Any]] = []
+        all_keys: List[Tuple[str, int]] = []  # (base, element_index)
 
-        elements = _load_json(elements_path)
-        meta = _load_json(meta_path)
-        scale = element_scale(meta)
-
-        elements_by_base[base] = elements
-        page_png_by_base[base] = page_png
-
-        for idx, el in enumerate(elements):
-            r = el.get("rect") or {}
-            w = int(r.get("w", 0)); h = int(r.get("h", 0))
-            if w < min_elem_size or h < min_elem_size:
+        for base in tqdm(group, desc="Indexing elements for VLM (pass)", leave=False):
+            page_png = base + ".png"
+            elements_path = base + ".elements.json"
+            meta_path = base + ".meta.json"
+            if not (os.path.exists(page_png) and os.path.exists(elements_path) and os.path.exists(meta_path)):
                 continue
 
-            crop_name = f"{os.path.basename(base)}__el{idx}.png"
-            crop_path = os.path.join(crops_dir, crop_name)
-            if not os.path.exists(crop_path):
-                ok = crop_element_to_file(page_png, r, scale, crop_path)
-                if not ok:
-                    continue
+            elements = _load_json(elements_path)
+            meta = _load_json(meta_path)
+            scale = element_scale(meta)
 
-            html_snippet = reconstruct_html_simple(el)
-            # (Optional) keep your debug prints
-            # print('Debug crop path:', crop_path)
-            # print('Debug HTML snippet:', html_snippet)
+            # retain for writing later (once overall labeling is done)
+            if base not in elements_by_base:
+                elements_by_base[base] = elements
+                page_png_by_base[base] = page_png
 
-            req = engine.build_request(
-                page_img=page_png,
-                crop_img=crop_path,
-                user_prompt=build_user_prompt(html_snippet),
-            )
-            all_reqs.append(req)
-            all_keys.append((base, idx))
+            # Open screenshot ONCE and crop all elements from this in-memory image
+            with Image.open(page_png) as im:
+                for idx, el in enumerate(elements):
+                    r = el.get("rect") or {}
+                    w = int(r.get("w", 0)); h = int(r.get("h", 0))
+                    if w < min_elem_size or h < min_elem_size:
+                        continue
 
-    # 2) Run GLOBAL batches with vLLM, route outputs back by (base, idx)
-    for i in range(0, len(all_reqs), batch_size):
-        texts = engine.generate(all_reqs[i:i + batch_size])
-        for off, t in enumerate(texts):
-            # print('Debug output:', t)  # optional debug
-            base, elem_index = all_keys[i + off]
-            obj = _extract_json_line(t) or {}
-            raw_label = (obj.get("label") or "").strip()
-            label = normalize_label(raw_label) or "Unknown"
-            conf = obj.get("confidence", 0.0)
-            try:
-                conf = float(conf)
-            except Exception:
-                conf = 0.0
-            labels_by_base.setdefault(base, []).append(
-                (elem_index, label, max(0.0, min(1.0, conf)))
-            )
+                    crop_name = f"{os.path.basename(base)}__el{idx}.png"
+                    crop_path = os.path.join(crops_dir, crop_name)
+                    if not os.path.exists(crop_path):
+                        ok = _crop_from_open_image(im, r, scale, crop_path, padding=5)
+                        if not ok:
+                            continue
 
-    # 3) Write sidecars / optionally inplace + viz, per base
+                    # Prefer your light HTML serializer if present
+                    try:
+                        html_snippet = reconstruct_html_simple(el)  # your version
+                    except NameError:
+                        html_snippet = reconstruct_html(el)         # fallback
+
+                    req = engine.build_request(
+                        page_img=page_png,
+                        crop_img=crop_path,
+                        user_prompt=build_user_prompt(html_snippet),
+                    )
+                    all_reqs.append(req)
+                    all_keys.append((base, idx))
+
+        # Run vLLM for this pass in micro-batches and route outputs
+        for i in tqdm(range(0, len(all_reqs), batch_size), desc="VLM batches (pass)", leave=False):
+            texts = engine.generate(all_reqs[i:i + batch_size])
+            for off, t in enumerate(texts):
+                base, elem_index = all_keys[i + off]
+                obj = _extract_json_line(t) or {}
+                raw_label = (obj.get("label") or "").strip()
+                label = normalize_label(raw_label) or "Unknown"
+                conf = obj.get("confidence", 0.0)
+                try:
+                    conf = float(conf)
+                except Exception:
+                    conf = 0.0
+                labels_by_base.setdefault(base, []).append(
+                    (elem_index, label, max(0.0, min(1.0, conf)))
+                )
+
+    # After all passes: write sidecars / inplace / viz per base
     for base in tqdm(bases, desc="Writing VLM sidecars"):
-        # If a base had no eligible elements, labels list is empty
         labels = labels_by_base.get(base, [])
         labels.sort(key=lambda x: x[0])
 
@@ -427,7 +457,6 @@ def label_dir(
         with open(base + out_suffix, "w", encoding="utf-8") as f:
             json.dump(sidecar, f, ensure_ascii=False, indent=2)
 
-        # If artifacts were missing earlier we didn't index this base
         if base not in elements_by_base:
             continue
 
