@@ -31,7 +31,7 @@ def _color_from_name(name: str):
 class VizOptions:
     draw_elements: bool = True
     draw_text_spans: bool = True
-    draw_ocr: bool = True
+    draw_ocr: bool = False
     min_box_area: int = 12 * 12  # skip tiny noise
     label_elements: bool = True
     label_text_spans: bool = False
@@ -74,6 +74,8 @@ def visualize_one(
     out_path: str,
     opts: VizOptions = VizOptions(),
 ):
+    print(f"OCR path: {ocr_path}")
+    print(f"opts: {opts}")
     im = Image.open(image_path).convert("RGBA")
     overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -127,6 +129,7 @@ def visualize_one(
     # OCR overlay (per-element)
     if ocr_path and os.path.exists(ocr_path) and opts.draw_ocr:
         try:
+            print(f"Adding OCR overlay from {ocr_path}")
             ocr_items: List[Dict[str, Any]] = load_json(ocr_path)
             # Need element rects to place OCR near its element
             elem_rects = []

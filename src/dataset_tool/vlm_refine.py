@@ -22,6 +22,25 @@ wsd vlm-label \
   --model Qwen/Qwen3-VL-8B-Instruct \
   --inplace-elements \
   --viz-dir data/viz_vlm
+  
+# multi-gpu with tp=4 (example)
+# env that tends to help multi-GPU stability
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+export NCCL_ASYNC_ERROR_HANDLING=1
+export NCCL_P2P_DISABLE=1          # or: export NCCL_P2P_LEVEL=NVL  (on NVLink boxes)
+export NCCL_IB_DISABLE=1           # if you don't have IB or it's flaky
+export VLLM_WORKER_MULTIPROC_METHOD=spawn
+export VLLM_ENFORCE_EAGER=1
+export VLLM_DISABLE_CUSTOM_ALL_REDUCE=1
+wsd vlm-label \
+  --raw-dir old_data/raw \
+  --crops-dir old_data/crops \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --tp 4 \
+  --batch-size 2048 \
+  --viz-dir old_data/viz_vlm \
+  --viz-min-conf 0.3 \
+  --inplace-elements
 
 
 """
@@ -316,15 +335,15 @@ def label_dir(
     inplace_elements: bool = True,
     viz_dir: Optional[str] = None,
     viz_min_conf: float = 0.0,
-    screens_per_pass: int = 32,   # NEW: outer chunking to cap memory
+    screens_per_pass: int = 64,   # outer chunking to cap memory
 ) -> None:
     """
-    Build requests in outer "passes" over at most `screens_per_pass` screenshots,
+    Build requests in outer 'passes' over at most `screens_per_pass` screenshots,
     so a single vLLM micro-batch can still contain elements from multiple screens
-    without materializing the *entire* corpus at once.
+    without materializing the entire corpus at once.
 
-    Also speeds up indexing: each screenshot PNG is opened once and reused for
-    all element crops in that pass (avoids re-opening per element).
+    Writes sidecars / inplace .elements.json / viz overlays **incrementally**
+    after every vLLM micro-batch, so progress is durable if the run aborts.
     """
     bases = list(_iter_screens(raw_dir))
     if limit_images:
@@ -335,7 +354,7 @@ def label_dir(
 
     from .vlm_visualize import draw_vlm_overlay
 
-    # before start, remove all old crops and viz_vlm contents as well as all .vlm.labels.json files
+    # Before start, clean old crops, old viz, and prior sidecars
     if os.path.exists(crops_dir):
         for f in glob.glob(os.path.join(crops_dir, "*.png")):
             os.remove(f)
@@ -349,13 +368,19 @@ def label_dir(
 
     _ensure_dir(crops_dir)
 
-    # Global accumulators we fill pass-by-pass (keeps memory bounded):
+    # Accumulators kept across passes
     elements_by_base: Dict[str, List[Dict[str, Any]]] = {}
     page_png_by_base: Dict[str, str] = {}
     labels_by_base: Dict[str, List[Tuple[int, str, float]]] = {}
 
     # Helper: fast crop using an already opened PIL image
-    def _crop_from_open_image(im: Image.Image, r: Dict[str, int], scale: float, out_path: str, padding: int = 5) -> bool:
+    def _crop_from_open_image(
+        im: Image.Image,
+        r: Dict[str, int],
+        scale: float,
+        out_path: str,
+        padding: int = 5,
+    ) -> bool:
         try:
             W, H = im.size
             x = int(round(r.get("x", 0) * scale))
@@ -373,6 +398,68 @@ def label_dir(
             return True
         except Exception:
             return False
+
+    # Flush helper: write sidecar / inplace / viz for specific bases
+    def _flush_bases(bases_to_flush: Iterable[str]) -> None:
+        for base in bases_to_flush:
+            labels = labels_by_base.get(base, [])
+            labels.sort(key=lambda x: x[0])
+
+            # Sidecar
+            sidecar = {
+                "model": model,
+                "classes": CANON_CLASSES,
+                "elements": [
+                    {"index": i, "label": lab, "confidence": conf}
+                    for (i, lab, conf) in labels
+                ],
+            }
+            with open(base + out_suffix, "w", encoding="utf-8") as f:
+                json.dump(sidecar, f, ensure_ascii=False, indent=2)
+
+            # If we indexed this base, we can also write inplace + viz
+            if base not in elements_by_base:
+                continue
+
+            elements = elements_by_base[base]
+
+            if inplace_elements:
+                elements_path = base + ".elements.json"
+                for i_el, lab, conf in labels:
+                    if 0 <= i_el < len(elements):
+                        elements[i_el]["vlm_label"] = lab
+                        elements[i_el]["vlm_conf"] = conf
+                with open(elements_path, "w", encoding="utf-8") as f:
+                    json.dump(elements, f, ensure_ascii=False, indent=2)
+
+            if viz_dir:
+                _ensure_dir(viz_dir)
+                out_img = os.path.join(
+                    viz_dir, os.path.basename(base) + ".vlm.viz.jpg"
+                )
+                draw_vlm_overlay(
+                    page_png_by_base.get(base, base + ".png"),
+                    elements,
+                    labels,
+                    out_img,
+                    min_conf=viz_min_conf,
+                )
+
+    # optional, right now we are not using downscaled JPEGs
+    def _downscaled_jpeg(src_png: str, cache_dir: str, max_side: int = 1536) -> str:
+        os.makedirs(cache_dir, exist_ok=True)
+        key = os.path.basename(src_png).rsplit(".", 1)[0]
+        out = os.path.join(cache_dir, f"{key}_s{max_side}.jpg")
+        if os.path.exists(out): 
+            return out
+        from PIL import Image
+        with Image.open(src_png) as im:
+            w, h = im.size
+            scale = max(w, h) / max_side if max(w, h) > max_side else 1.0
+            if scale > 1.0:
+                im = im.resize((int(w/scale), int(h/scale)), Image.BILINEAR)
+            im.convert("RGB").save(out, "JPEG", quality=90, optimize=True)
+        return out
 
     # Process in outer passes to cap memory
     for start in tqdm(range(0, len(bases), screens_per_pass), desc="Passes over screenshots"):
@@ -393,12 +480,11 @@ def label_dir(
             meta = _load_json(meta_path)
             scale = element_scale(meta)
 
-            # retain for writing later (once overall labeling is done)
             if base not in elements_by_base:
                 elements_by_base[base] = elements
                 page_png_by_base[base] = page_png
 
-            # Open screenshot ONCE and crop all elements from this in-memory image
+            # Open screenshot ONCE per base in this pass
             with Image.open(page_png) as im:
                 for idx, el in enumerate(elements):
                     r = el.get("rect") or {}
@@ -413,11 +499,11 @@ def label_dir(
                         if not ok:
                             continue
 
-                    # Prefer your light HTML serializer if present
+                    # Prefer lightweight HTML serializer if present
                     try:
-                        html_snippet = reconstruct_html_simple(el)  # your version
+                        html_snippet = reconstruct_html_simple(el)  # optional helper
                     except NameError:
-                        html_snippet = reconstruct_html(el)         # fallback
+                        html_snippet = reconstruct_html(el)
 
                     req = engine.build_request(
                         page_img=page_png,
@@ -444,11 +530,16 @@ def label_dir(
                     (elem_index, label, max(0.0, min(1.0, conf)))
                 )
 
-    # After all passes: write sidecars / inplace / viz per base
-    for base in tqdm(bases, desc="Writing VLM sidecars"):
+            # Flush everything touched in this micro-batch
+            touched_bases = {b for (b, _) in all_keys[i:i + batch_size]}
+            _flush_bases(touched_bases)
+
+    # Final sweep: ensure every base has at least a sidecar on disk
+    for base in tqdm(bases, desc="Writing VLM sidecars (final sweep)"):
         labels = labels_by_base.get(base, [])
         labels.sort(key=lambda x: x[0])
 
+        # Sidecar
         sidecar = {
             "model": model,
             "classes": CANON_CLASSES,
@@ -457,6 +548,8 @@ def label_dir(
         with open(base + out_suffix, "w", encoding="utf-8") as f:
             json.dump(sidecar, f, ensure_ascii=False, indent=2)
 
+        # For bases that never got indexed in this run (e.g., missing artifacts),
+        # we skip inplace + viz safely.
         if base not in elements_by_base:
             continue
 
