@@ -3,7 +3,7 @@
 VLM-driven UI element relabeling (Qwen3-VL via vLLM) — FIXED:
 - Build prompts with the model's chat template (no manual "<image>").
 - Optional visualization hooks are exposed via the CLI (see cli.py patch).
-# smoke test on a few pages, with overlays
+## smoke test on a few pages, with overlays
 wsd vlm-label \
   --raw-dir old_data/raw \
   --crops-dir old_data/crops \
@@ -13,7 +13,7 @@ wsd vlm-label \
   --viz-dir old_data/viz_vlm \
   --viz-min-conf 0.3
 
-# full run, tp=2 across two GPUs (example)
+## full run, tp=2 across two GPUs (example)
 wsd vlm-label \
   --raw-dir old_data/raw \
   --crops-dir old_data/crops \
@@ -23,7 +23,7 @@ wsd vlm-label \
   --inplace-elements \
   --viz-dir data/viz_vlm
   
-# multi-gpu with tp=4 (example)
+## multi-gpu with tp=4 (example)
 # env that tends to help multi-GPU stability
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 export NCCL_ASYNC_ERROR_HANDLING=1
@@ -42,6 +42,104 @@ wsd vlm-label \
   --viz-min-conf 0.3 \
   --inplace-elements
 
+
+## multi-gpu sharded example (8 GPUs, each handling 1/8th of the data)
+# Shard 0 on GPU 0
+CUDA_VISIBLE_DEVICES=0 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard0 \
+  --viz-dir data/viz_vlm_shard0 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 0 \
+  > logs/shard0.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=1 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard1 \
+  --viz-dir data/viz_vlm_shard1 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 1 \
+  > logs/shard1.log 2>&1 &
+  
+CUDA_VISIBLE_DEVICES=2 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard2 \
+  --viz-dir data/viz_vlm_shard2 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 2 \
+  > logs/shard2.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=3 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard3 \
+  --viz-dir data/viz_vlm_shard3 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 3 \
+  > logs/shard3.log 2>&1 &
+
+CUDA_VISIBLE_DEVICES=4 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard4 \
+  --viz-dir data/viz_vlm_shard4 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 4 \
+  > logs/shard4.log 2>&1 &
+  
+CUDA_VISIBLE_DEVICES=5 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard5 \
+  --viz-dir data/viz_vlm_shard5 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 5 \
+  > logs/shard5.log 2>&1 &
+  
+CUDA_VISIBLE_DEVICES=6 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard6 \
+  --viz-dir data/viz_vlm_shard6 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 6 \
+  > logs/shard6.log 2>&1 &
+  
+CUDA_VISIBLE_DEVICES=7 wsd vlm-label \
+  --raw-dir data/raw \
+  --crops-dir data/crops_shard7 \
+  --viz-dir data/viz_vlm_shard7 \
+  --model Qwen/Qwen3-VL-8B-Instruct \
+  --batch-size 512 \
+  --tp 1 \
+  --num-shards 8 \
+  --inplace-elements \
+  --shard-index 7 \
+  > logs/shard7.log 2>&1 &
 
 """
 from __future__ import annotations
@@ -66,7 +164,7 @@ _CANON_CLASSES = [
     "Window", "Screen", "List", "List Item", "PopUp Menu", "Steppers",
     "Toggles", "Text Input", "Rating Indicator", "Checkbox", "Radiobox",
     "Select", "Avatar", "Badge", "Alert", "Progress bar", "Bottom navigation",
-    "Breadcrumb/Pathcontrol", "Page control", "Link", "Menu", "Pagination",
+    "Breadcrumb", "Page control", "Link", "Menu", "Pagination",
     "Tab", "Search Bar", "Date-Time picker", "Calendar", "Text", "Heading",
     "Code snippet", "Carousel", "Notification", "Logo",
 ]
@@ -81,8 +179,8 @@ CANON_CLASSES = _dedupe(_CANON_CLASSES)
 _ALIAS: Dict[str, str] = {
     "progressbar": "Progress bar", "progress-bar": "Progress bar",
     "navbar": "Navigation Bar", "sidebar": "Side Bar",
-    "bottom nav": "Bottom navigation", "breadcrumb": "Breadcrumb/Pathcontrol",
-    "pathcontrol": "Breadcrumb/Pathcontrol", "pagecontrol": "Page control",
+    "bottom nav": "Bottom navigation", "breadcrumb": "Breadcrumb",
+    "pathcontrol": "Breadcrumb", "pagecontrol": "Page control",
     "check box": "Checkbox", "checkbox button": "Checkbox",
     "radio": "Radiobox", "radio button": "Radiobox", "radiobutton": "Radiobox",
     "text field": "Text Input", "input": "Text Input",
@@ -94,16 +192,21 @@ _ALIAS: Dict[str, str] = {
 }
 
 _SYSTEM_PROMPT = (
-    "You are a meticulous UI element classifier. You receive:\n"
-    " (1) the full-page screenshot of a webpage/app,\n"
-    " (2) a cropped image of ONE element highlighted from that page, and\n"
-    " (3) a compact HTML-like snippet for that element.\n\n"
-    "Choose exactly ONE label from the allowed list of UI element types. "
-    "Use BOTH visual context (full page + crop) and HTML/ARIA hints (role, input type, classes). "
-    "Prefer the most specific label. If multiple are plausible, choose the one best aligned with purpose.\n\n"
-    'Return ONLY a single JSON object on one line: '
-    '{"label":"<one-of-allowed>","confidence":<0..1>,"reason":"<short rationale>"}'
+    "You classify ONE UI element using:\n"
+    " (1) the full-page screenshot,\n"
+    " (2) a cropped image of the element,\n"
+    " (3) a compact HTML-like snippet for the element.\n\n"
+    "Labeling rule:\n"
+    "- Choose exactly ONE label from the allowed list.\n"
+    "- Prefer the most specific, functionally correct label that best matches the element's purpose in its context.\n"
+    "- Favor function over appearance. If a more specific option exists, prefer it (e.g., 'Search Field' over 'Text Input' when it is clearly a search box; 'Link' over 'Text' if it navigates; 'Button' over 'Image' if it acts like a button).\n"
+    "- Use HTML/ARIA (role, type, href, aria-*, classes) to break ties. If still ambiguous, choose the closest single label from the list.\n\n"
+    "Interactability:\n"
+    "- Set interactable=true if a typical end-user can directly act on this element itself (click/tap/select/type/drag/scroll within it). Otherwise false (pure content/decoration or a passive container).\n\n"
+    "Output ONLY one JSON object on a single line:\n"
+    "{\"label\":\"<one-of-allowed>\",\"interactable\":<true|false>}"
 )
+
 
 def _classes_block() -> str:
     return "Allowed labels:\n- " + "\n- ".join(CANON_CLASSES)
@@ -121,7 +224,7 @@ def build_user_prompt(element_html: str) -> str:
         "- Consider the crop FIRST to understand the element's visual identity.\n"
         "- Use the full-page screenshot for surrounding context and function.\n"
         "- Use HTML attributes (tag, role, type, aria-*, classes) as semantic hints.\n"
-        "- Output strictly one JSON object as specified."
+        "- Output strictly one JSON object as specified (no extra text)."
     )
 
 def _load_json(path: str) -> Any:
@@ -276,52 +379,7 @@ def normalize_label(raw_label: str) -> Optional[str]:
             return c
     return None
 
-# --------- Public APIs ----------
-def classify_ui_samples(
-    samples: List[Dict[str, Any]],
-    model: str = "Qwen/Qwen3-VL-3B-Instruct",
-    tensor_parallel_size: int = 1,
-    batch_size: int = 256,
-    max_new_tokens: int = 1024,
-) -> List[Dict[str, Any]]:
-    """
-    Each sample:
-      {"page_image": "...", "crop_image": "...", "element_html": "...", "sample_id": "..."}
-    Returns (aligned order):
-      [{"label": "...", "confidence": 0.0..1.0, "raw": <json or raw_text>, "sample_id": "..."}]
-    """
-    cfg = VLMConfig(model=model, tensor_parallel_size=tensor_parallel_size, max_new_tokens=max_new_tokens)
-    engine = VLMEngine(cfg)
-    out: List[Dict[str, Any]] = []
-    for i in range(0, len(samples), batch_size):
-        batch = samples[i:i+batch_size]
-        reqs = []
-        for s in batch:
-            reqs.append(engine.build_request(
-                page_img=s["page_image"],
-                crop_img=s["crop_image"],
-                user_prompt=build_user_prompt(s.get("element_html","")),
-            ))
-        texts = engine.generate(reqs)
-        for s, t in zip(batch, texts):
-            print('Debug output:', t)  # DEBUG
-            obj = _extract_json_line(t) or {}
-            raw_label = (obj.get("label") or "").strip()
-            label = normalize_label(raw_label) or "Unknown"
-            conf = obj.get("confidence", 0.0)
-            try: conf = float(conf)
-            except Exception: conf = 0.0
-            out.append({
-                "label": label,
-                "confidence": max(0.0, min(1.0, conf)),
-                "raw": obj or {"raw_text": t},
-                "sample_id": s.get("sample_id"),
-            })
-    return out
-
-def _iter_screens(raw_dir: str) -> Iterable[str]:
-    for p in sorted(glob.glob(os.path.join(raw_dir, "*.elements.json"))):
-        yield p[:-len(".elements.json")]
+# --------- Public API ----------
 
 def label_dir(
     raw_dir: str = "data/raw",
@@ -334,8 +392,9 @@ def label_dir(
     min_elem_size: int = 3,
     inplace_elements: bool = True,
     viz_dir: Optional[str] = None,
-    viz_min_conf: float = 0.0,
     screens_per_pass: int = 64,   # outer chunking to cap memory
+    shard_index: int = 0,         # NEW: which shard (0-based)
+    num_shards: int = 1,          # NEW: total number of shards
 ) -> None:
     """
     Build requests in outer 'passes' over at most `screens_per_pass` screenshots,
@@ -344,36 +403,65 @@ def label_dir(
 
     Writes sidecars / inplace .elements.json / viz overlays **incrementally**
     after every vLLM micro-batch, so progress is durable if the run aborts.
+
+    Sharding:
+    - All screenshots are sorted into a list.
+    - This job processes only bases[b_i] where b_i % num_shards == shard_index,
+      implemented via Python slicing bases_all[shard_index::num_shards].
     """
-    bases = list(_iter_screens(raw_dir))
+
+    def _iter_screens(raw_dir: str) -> Iterable[str]:
+        for p in sorted(glob.glob(os.path.join(raw_dir, "*.elements.json"))):
+            yield p[:-len(".elements.json")]
+
+    if num_shards < 1:
+        raise ValueError(f"num_shards must be >= 1, got {num_shards}")
+    if not (0 <= shard_index < num_shards):
+        raise ValueError(
+            f"shard_index must be in [0, {num_shards-1}], got {shard_index}"
+        )
+
+    # 1) Build full list once, then shard it
+    bases_all = list(_iter_screens(raw_dir))
     if limit_images:
-        bases = bases[:limit_images]
+        bases_all = bases_all[:limit_images]
+
+    # Slice to this shard's subset
+    bases = bases_all[shard_index::num_shards]
+
+    print(
+        f"[VLM] Total bases: {len(bases_all)} | "
+        f"num_shards={num_shards} shard_index={shard_index} -> "
+        f"{len(bases)} bases for this job"
+    )
 
     cfg = VLMConfig(model=model, tensor_parallel_size=tensor_parallel_size)
     engine = VLMEngine(cfg)
 
     from .vlm_visualize import draw_vlm_overlay
 
-    # Before start, clean old crops, old viz, and prior sidecars
+    # Clean old artifacts ONLY for this shard's bases
     if os.path.exists(crops_dir):
         for f in glob.glob(os.path.join(crops_dir, "*.png")):
             os.remove(f)
+        # keep existing JPEGs if you switched crops to JPEG; adjust pattern as needed
     if viz_dir and os.path.exists(viz_dir):
         for f in glob.glob(os.path.join(viz_dir, "*.vlm.viz.jpg")):
             os.remove(f)
     for base in bases:
-        sidecar_path = base + out_suffix
-        if os.path.exists(sidecar_path):
-            os.remove(sidecar_path)
+        p = base + out_suffix
+        if os.path.exists(p):
+            os.remove(p)
 
     _ensure_dir(crops_dir)
 
-    # Accumulators kept across passes
+    # Accumulators across passes
     elements_by_base: Dict[str, List[Dict[str, Any]]] = {}
     page_png_by_base: Dict[str, str] = {}
-    labels_by_base: Dict[str, List[Tuple[int, str, float]]] = {}
+    # store (elem_index, label, interactable)
+    labels_by_base: Dict[str, List[Tuple[int, str, bool]]] = {}
 
-    # Helper: fast crop using an already opened PIL image
+    # Helper: fast crop using already opened PIL image
     def _crop_from_open_image(
         im: Image.Image,
         r: Dict[str, int],
@@ -399,19 +487,19 @@ def label_dir(
         except Exception:
             return False
 
-    # Flush helper: write sidecar / inplace / viz for specific bases
+    # Flush helper: write sidecar / inplace / viz for a set of bases
     def _flush_bases(bases_to_flush: Iterable[str]) -> None:
         for base in bases_to_flush:
-            labels = labels_by_base.get(base, [])
-            labels.sort(key=lambda x: x[0])
+            triples = labels_by_base.get(base, [])
+            triples.sort(key=lambda x: x[0])
 
-            # Sidecar
+            # Sidecar (no confidence anymore)
             sidecar = {
                 "model": model,
                 "classes": CANON_CLASSES,
                 "elements": [
-                    {"index": i, "label": lab, "confidence": conf}
-                    for (i, lab, conf) in labels
+                    {"index": i, "label": lab, "interactable": inter}
+                    for (i, lab, inter) in triples
                 ],
             }
             with open(base + out_suffix, "w", encoding="utf-8") as f:
@@ -425,10 +513,10 @@ def label_dir(
 
             if inplace_elements:
                 elements_path = base + ".elements.json"
-                for i_el, lab, conf in labels:
+                for i_el, lab, inter in triples:
                     if 0 <= i_el < len(elements):
                         elements[i_el]["vlm_label"] = lab
-                        elements[i_el]["vlm_conf"] = conf
+                        elements[i_el]["vlm_interactable"] = bool(inter)
                 with open(elements_path, "w", encoding="utf-8") as f:
                     json.dump(elements, f, ensure_ascii=False, indent=2)
 
@@ -440,32 +528,22 @@ def label_dir(
                 draw_vlm_overlay(
                     page_png_by_base.get(base, base + ".png"),
                     elements,
-                    labels,
+                    triples,   # (i, label, interactable)
                     out_img,
-                    min_conf=viz_min_conf,
                 )
 
-    # optional, right now we are not using downscaled JPEGs
-    def _downscaled_jpeg(src_png: str, cache_dir: str, max_side: int = 1536) -> str:
-        os.makedirs(cache_dir, exist_ok=True)
-        key = os.path.basename(src_png).rsplit(".", 1)[0]
-        out = os.path.join(cache_dir, f"{key}_s{max_side}.jpg")
-        if os.path.exists(out): 
-            return out
-        from PIL import Image
-        with Image.open(src_png) as im:
-            w, h = im.size
-            scale = max(w, h) / max_side if max(w, h) > max_side else 1.0
-            if scale > 1.0:
-                im = im.resize((int(w/scale), int(h/scale)), Image.BILINEAR)
-            im.convert("RGB").save(out, "JPEG", quality=90, optimize=True)
-        return out
+    def _as_bool(v: Any) -> bool:
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return v != 0
+        s = str(v).strip().lower()
+        return s in {"true", "yes", "y", "1", "t"}
 
-    # Process in outer passes to cap memory
+    # Process in outer passes
     for start in tqdm(range(0, len(bases), screens_per_pass), desc="Passes over screenshots"):
         group = bases[start:start + screens_per_pass]
 
-        # Build requests for this pass only
         all_reqs: List[Dict[str, Any]] = []
         all_keys: List[Tuple[str, int]] = []  # (base, element_index)
 
@@ -484,7 +562,6 @@ def label_dir(
                 elements_by_base[base] = elements
                 page_png_by_base[base] = page_png
 
-            # Open screenshot ONCE per base in this pass
             with Image.open(page_png) as im:
                 for idx, el in enumerate(elements):
                     r = el.get("rect") or {}
@@ -499,9 +576,8 @@ def label_dir(
                         if not ok:
                             continue
 
-                    # Prefer lightweight HTML serializer if present
                     try:
-                        html_snippet = reconstruct_html_simple(el)  # optional helper
+                        html_snippet = reconstruct_html_simple(el)
                     except NameError:
                         html_snippet = reconstruct_html(el)
 
@@ -513,7 +589,7 @@ def label_dir(
                     all_reqs.append(req)
                     all_keys.append((base, idx))
 
-        # Run vLLM for this pass in micro-batches and route outputs
+        # Micro-batches inside this pass
         for i in tqdm(range(0, len(all_reqs), batch_size), desc="VLM batches (pass)", leave=False):
             texts = engine.generate(all_reqs[i:i + batch_size])
             for off, t in enumerate(texts):
@@ -521,35 +597,29 @@ def label_dir(
                 obj = _extract_json_line(t) or {}
                 raw_label = (obj.get("label") or "").strip()
                 label = normalize_label(raw_label) or "Unknown"
-                conf = obj.get("confidence", 0.0)
-                try:
-                    conf = float(conf)
-                except Exception:
-                    conf = 0.0
-                labels_by_base.setdefault(base, []).append(
-                    (elem_index, label, max(0.0, min(1.0, conf)))
-                )
+                inter = _as_bool(obj.get("interactable", False))
+                labels_by_base.setdefault(base, []).append((elem_index, label, inter))
 
             # Flush everything touched in this micro-batch
             touched_bases = {b for (b, _) in all_keys[i:i + batch_size]}
             _flush_bases(touched_bases)
 
-    # Final sweep: ensure every base has at least a sidecar on disk
+    # Final sweep: ensure every base this shard touched has a sidecar on disk
     for base in tqdm(bases, desc="Writing VLM sidecars (final sweep)"):
-        labels = labels_by_base.get(base, [])
-        labels.sort(key=lambda x: x[0])
+        triples = labels_by_base.get(base, [])
+        triples.sort(key=lambda x: x[0])
 
-        # Sidecar
         sidecar = {
             "model": model,
             "classes": CANON_CLASSES,
-            "elements": [{"index": i, "label": lab, "confidence": conf} for (i, lab, conf) in labels],
+            "elements": [
+                {"index": i, "label": lab, "interactable": inter}
+                for (i, lab, inter) in triples
+            ],
         }
         with open(base + out_suffix, "w", encoding="utf-8") as f:
             json.dump(sidecar, f, ensure_ascii=False, indent=2)
 
-        # For bases that never got indexed in this run (e.g., missing artifacts),
-        # we skip inplace + viz safely.
         if base not in elements_by_base:
             continue
 
@@ -557,14 +627,19 @@ def label_dir(
 
         if inplace_elements:
             elements_path = base + ".elements.json"
-            for i_el, lab, conf in labels:
+            for i_el, lab, inter in triples:
                 if 0 <= i_el < len(elements):
                     elements[i_el]["vlm_label"] = lab
-                    elements[i_el]["vlm_conf"] = conf
+                    elements[i_el]["vlm_interactable"] = bool(inter)
             with open(elements_path, "w", encoding="utf-8") as f:
                 json.dump(elements, f, ensure_ascii=False, indent=2)
 
         if viz_dir:
             _ensure_dir(viz_dir)
             out_img = os.path.join(viz_dir, os.path.basename(base) + ".vlm.viz.jpg")
-            draw_vlm_overlay(page_png_by_base[base], elements, labels, out_img, min_conf=viz_min_conf)
+            draw_vlm_overlay(
+                page_png_by_base[base],
+                elements,
+                triples,   # (i, label, interactable)
+                out_img,
+            )

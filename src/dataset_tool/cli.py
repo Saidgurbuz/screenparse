@@ -408,7 +408,8 @@ def main():
     pl.add_argument("--min-elem-size", type=int, default=3, help="Skip elements smaller than this (CSS px)")
     pl.add_argument("--inplace-elements", action="store_true", help="Write vlm_label/vlm_conf back into *.elements.json")
     pl.add_argument("--viz-dir", help="If set, write visualizations with predicted labels")
-    pl.add_argument("--viz-min-conf", type=float, default=0.0, help="Only render labels with confidence >= this")
+    pl.add_argument("--shard-index", type=int, default=0, help="Shard index (0-based)")
+    pl.add_argument("--num-shards", type=int, default=1, help="Total number of shards")
     def _cmd_vlm_label(args):
         from .vlm_refine import label_dir
         label_dir(
@@ -421,7 +422,8 @@ def main():
             min_elem_size=args.min_elem_size,
             inplace_elements=args.inplace_elements,
             viz_dir=args.viz_dir,
-            viz_min_conf=args.viz_min_conf,
+            shard_index=args.shard_index,
+            num_shards=args.num_shards,
         )
     pl.set_defaults(func=_cmd_vlm_label)
 

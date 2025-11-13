@@ -23,31 +23,46 @@ def _load_font(size: int = 16) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 def draw_vlm_overlay(
     page_png: str,
     elements: List[Dict[str, Any]],
-    labels: List[Tuple[int,str,float]],
+    labels: List[Tuple[int,str,bool]],
     out_path: str,
-    min_conf: float = 0.0,
     line_w: int = 2,
 ) -> None:
-    # labels: list of (index, "Label", conf)
-    idx2lab = {i:(lab,conf) for (i,lab,conf) in labels if conf >= min_conf}
+    # labels: list of (index, "Label", "interactable")
+    idx2lab = {i:(lab,interactable) for (i,lab,interactable) in labels}
     im = Image.open(page_png).convert("RGB")
     draw = ImageDraw.Draw(im, "RGBA")
     font = _load_font(16)
 
+    img_w, img_h = im.size
     for i, el in enumerate(elements):
         if i not in idx2lab: continue
-        lab, conf = idx2lab[i]
+        lab, interactable = idx2lab[i]
         r = el.get("rect") or {}
         x = int(r.get("x",0)); y = int(r.get("y",0)); w = int(r.get("w",0)); h = int(r.get("h",0))
         if w < 1 or h < 1: continue
         color = _hash_color(lab)
-        # box
-        draw.rectangle([x, y, x+w, y+h], outline=color + (255,), width=line_w)
+        
+        # Add a subtle fill overlay for interactable elements
+        if interactable:
+            draw.rectangle([x, y, x+w, y+h], fill=color + (70,))
+        
+        # box - use thicker line for interactable elements
+        outline_width = line_w + 2 if interactable else line_w
+        draw.rectangle([x, y, x+w, y+h], outline=color + (255,), width=outline_width)
+        
         # label bg
-        text = f"{lab} ({conf:.2f})"
-        tw, th = draw.textbbox((0,0), text, font=font)[2:]
+        label_text = f"[⚡] {lab}" if interactable else lab
+        tw, th = draw.textbbox((0,0), label_text, font=font)[2:]
         pad = 3
+        
+        # Clamp label position to stay within image bounds
+        label_x = max(0, min(x, img_w - tw - 2*pad))
+        label_y = y - th - 2*pad
+        # If label would go above image, place it below the box instead
+        if label_y < 0:
+            label_y = min(y + h, img_h - th - 2*pad)
+        
         bg = (color[0], color[1], color[2], 180)
-        draw.rectangle([x, y - th - 2*pad, x + tw + 2*pad, y], fill=bg)
-        draw.text((x + pad, y - th - pad), text, font=font, fill=(0,0,0,255))
+        draw.rectangle([label_x, label_y, label_x + tw + 2*pad, label_y + th + 2*pad], fill=bg)
+        draw.text((label_x + pad, label_y + pad), label_text, font=font, fill=(0,0,0,255))
     im.save(out_path, quality=92)
