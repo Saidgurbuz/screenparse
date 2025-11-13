@@ -1,7 +1,7 @@
 # training/predict_folder.py
 """
 python scripts/predict.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui6/weights/best.pt \
+    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui11/weights/best.pt \
     --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
     --conf 0.21
 """
@@ -27,13 +27,20 @@ def main():
     ap.add_argument("--imgsz", type=int, default=1280)
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--project", type=str, default="viz/preds")
-    ap.add_argument("--name", type=str, default="run")
+    ap.add_argument("--name", type=str, default=None)
     ap.add_argument("--device", type=str, default=None)
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--max-det", type=int, default=300, help="Maximum number of detections per image")
+    ap.add_argument("--max-det", type=int, default=700, help="Maximum number of detections per image")
     ap.add_argument("--line-width", type=int, default=2, help="Bounding box line thickness")
     ap.add_argument("--font-size", type=int, default=None, help="Label font size")
     args = ap.parse_args()
+
+    # Generate dynamic name if not provided
+    if args.name is None:
+        weights_path = Path(args.weights)
+        parent_folder = weights_path.parent.parent.name  # Gets parent of 'weights' folder
+        conf_str = str(args.conf).replace('.', '')  # Remove decimal point
+        args.name = f"run_{parent_folder}_c{conf_str}_imgsz{args.imgsz}_md{args.max_det}"
 
     dev = args.device or auto_device()
     model = YOLO(args.weights)
