@@ -65,6 +65,7 @@ def main():
             random.shuffle(files)
     model.predict(
         source=source,
+        batch=1,
         imgsz=args.imgsz,
         conf=args.conf,
         save=True,

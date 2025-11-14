@@ -7,11 +7,11 @@ VLM-driven UI element relabeling (Qwen3-VL via vLLM) — FIXED:
 wsd vlm-label \
   --raw-dir old_data/raw \
   --crops-dir old_data/crops \
-  --limit 5 \
-  --batch-size 256 \
-  --model Qwen/Qwen3-VL-8B-Instruct \
-  --viz-dir old_data/viz_vlm \
-  --viz-min-conf 0.3
+  --limit 50 \
+  --batch-size 64 \
+  --model Qwen/Qwen3-VL-2B-Instruct \
+  --viz-dir old_data/viz_vlm
+
 
 ## full run, tp=2 across two GPUs (example)
 wsd vlm-label \
@@ -148,6 +148,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Iterable
 from PIL import Image
 from tqdm import tqdm
+import time
 
 try:
     from vllm import LLM, SamplingParams  # type: ignore
@@ -228,8 +229,11 @@ def build_user_prompt(element_html: str) -> str:
     )
 
 def _load_json(path: str) -> Any:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 def _ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
@@ -240,6 +244,25 @@ def _clip_box(x: int, y: int, w: int, h: int, W: int, H: int) -> Tuple[int,int,i
     w = max(1, int(min(w, W - x)))
     h = max(1, int(min(h, H - y)))
     return x, y, w, h
+
+def element_to_compact_json(el: Dict[str, Any]) -> str:
+    """
+    Serialize the element almost 'as is', but:
+    - use real JSON (double quotes, null, true/false),
+    - remove our own VLM outputs (vlm_*),
+    - and make it compact (no unnecessary spaces).
+    """
+    # Optional: don't feed previous VLM predictions back as input
+    cleaned = {
+        k: v for k, v in el.items()
+        if not k.startswith("vlm_")
+    }
+    try:
+        # separators=(",",":") removes spaces after commas/colons → more compact
+        return json.dumps(cleaned, ensure_ascii=False, separators=(",", ":"))
+    except Exception:
+        # Fallback to plain str if something goes wrong
+        return str(cleaned)
 
 def reconstruct_html(el: Dict[str, Any]) -> str:
     tag = (el.get("tag") or "div").lower()
@@ -260,7 +283,7 @@ def reconstruct_html(el: Dict[str, Any]) -> str:
 
 def reconstruct_html_simple(el: Dict[str, Any]) -> str:
     """It will directly give the str of Dictionary element."""
-    return str(el)
+    return element_to_compact_json(el)
 
 def element_scale(meta: Dict[str, Any]) -> float:
     s = meta.get("css_to_image_scale", 1)
@@ -295,9 +318,17 @@ class VLMConfig:
     model: str = "Qwen/Qwen3-VL-8B-Instruct"
     tensor_parallel_size: int = 1
     dtype: str = "auto"
-    max_new_tokens: int = 1024
+    max_new_tokens: int = 256
     temperature: float = 0.0
     top_p: float = 1.0
+    
+    max_model_len: int | None = None
+    limit_mm_per_prompt: dict | None = None
+    
+    # NEW: parallel CPU & multimodal tuning
+    mm_encoder_tp_mode: str = "weights"    # "data" when TP > 1
+    mm_processor_cache_gb: float = 0.0     # e.g. 4.0 to enable cache
+    mm_processor_cache_type: str = "shm"  # let vLLM choose (e.g. "shm")
 
 class VLMEngine:
     """vLLM wrapper that uses the model's chat template for multimodal prompts."""
@@ -310,6 +341,10 @@ class VLMEngine:
             tensor_parallel_size=cfg.tensor_parallel_size,
             dtype=cfg.dtype,
             trust_remote_code=True,
+            tokenizer_mode="auto",
+            mm_encoder_tp_mode=cfg.mm_encoder_tp_mode,
+            mm_processor_cache_gb=cfg.mm_processor_cache_gb,
+            mm_processor_cache_type=cfg.mm_processor_cache_type,
         )
         self.sampling = SamplingParams(
             max_tokens=cfg.max_new_tokens,
@@ -392,7 +427,7 @@ def label_dir(
     min_elem_size: int = 3,
     inplace_elements: bool = True,
     viz_dir: Optional[str] = None,
-    screens_per_pass: int = 64,   # outer chunking to cap memory
+    screens_per_pass: int = 8,   # outer chunking to cap memory
     shard_index: int = 0,         # NEW: which shard (0-based)
     num_shards: int = 1,          # NEW: total number of shards
 ) -> None:
@@ -413,6 +448,18 @@ def label_dir(
     def _iter_screens(raw_dir: str) -> Iterable[str]:
         for p in sorted(glob.glob(os.path.join(raw_dir, "*.elements.json"))):
             yield p[:-len(".elements.json")]
+
+    def _is_already_processed(elements_path: str) -> bool:
+        """Check if any element has vlm_label attribute."""
+        elements = _load_json(elements_path)
+        if elements is None:
+            return True
+        try:
+            if "vlm_label" in elements[0]:
+                return True
+        except Exception:
+            return True
+        return False
 
     if num_shards < 1:
         raise ValueError(f"num_shards must be >= 1, got {num_shards}")
@@ -435,23 +482,32 @@ def label_dir(
         f"{len(bases)} bases for this job"
     )
 
-    cfg = VLMConfig(model=model, tensor_parallel_size=tensor_parallel_size)
+    cfg = VLMConfig(
+        model=model,
+        tensor_parallel_size=tensor_parallel_size,
+        max_model_len=16384,
+        limit_mm_per_prompt={"image": 2, "video": 0, "audio": 0},
+        mm_encoder_tp_mode="data" if tensor_parallel_size > 1 else "weights",
+        mm_processor_cache_gb=4.0,      # e.g. 4 GB for HF processor cache
+        mm_processor_cache_type="shm",
+    )
+
     engine = VLMEngine(cfg)
 
     from .vlm_visualize import draw_vlm_overlay
 
     # Clean old artifacts ONLY for this shard's bases
-    if os.path.exists(crops_dir):
-        for f in glob.glob(os.path.join(crops_dir, "*.png")):
-            os.remove(f)
-        # keep existing JPEGs if you switched crops to JPEG; adjust pattern as needed
-    if viz_dir and os.path.exists(viz_dir):
-        for f in glob.glob(os.path.join(viz_dir, "*.vlm.viz.jpg")):
-            os.remove(f)
-    for base in bases:
-        p = base + out_suffix
-        if os.path.exists(p):
-            os.remove(p)
+    # if os.path.exists(crops_dir):
+    #     for f in glob.glob(os.path.join(crops_dir, "*.png")):
+    #         os.remove(f)
+    #     # keep existing JPEGs if you switched crops to JPEG; adjust pattern as needed
+    # if viz_dir and os.path.exists(viz_dir):
+    #     for f in glob.glob(os.path.join(viz_dir, "*.vlm.viz.jpg")):
+    #         os.remove(f)
+    # for base in bases:
+    #     p = base + out_suffix
+    #     if os.path.exists(p):
+    #         os.remove(p)
 
     _ensure_dir(crops_dir)
 
@@ -547,6 +603,7 @@ def label_dir(
         all_reqs: List[Dict[str, Any]] = []
         all_keys: List[Tuple[str, int]] = []  # (base, element_index)
 
+        loop_start = time.time()
         for base in tqdm(group, desc="Indexing elements for VLM (pass)", leave=False):
             page_png = base + ".png"
             elements_path = base + ".elements.json"
@@ -554,8 +611,14 @@ def label_dir(
             if not (os.path.exists(page_png) and os.path.exists(elements_path) and os.path.exists(meta_path)):
                 continue
 
+            # Skip if already processed
+            if _is_already_processed(elements_path):
+                continue
+
             elements = _load_json(elements_path)
             meta = _load_json(meta_path)
+            if elements is None or meta is None or not elements:
+                continue
             scale = element_scale(meta)
 
             if base not in elements_by_base:
@@ -589,6 +652,12 @@ def label_dir(
                     all_reqs.append(req)
                     all_keys.append((base, idx))
 
+        loop_elapsed = time.time() - loop_start
+        print(f"Indexing loop completed in {loop_elapsed:.2f} seconds ({len(all_reqs)} requests)")
+
+        # Track flushed bases across micro-batches
+        flushed_bases = set()
+
         # Micro-batches inside this pass
         for i in tqdm(range(0, len(all_reqs), batch_size), desc="VLM batches (pass)", leave=False):
             texts = engine.generate(all_reqs[i:i + batch_size])
@@ -603,43 +672,8 @@ def label_dir(
             # Flush everything touched in this micro-batch
             touched_bases = {b for (b, _) in all_keys[i:i + batch_size]}
             _flush_bases(touched_bases)
+            flushed_bases.update(touched_bases)
 
-    # Final sweep: ensure every base this shard touched has a sidecar on disk
-    for base in tqdm(bases, desc="Writing VLM sidecars (final sweep)"):
-        triples = labels_by_base.get(base, [])
-        triples.sort(key=lambda x: x[0])
-
-        sidecar = {
-            "model": model,
-            "classes": CANON_CLASSES,
-            "elements": [
-                {"index": i, "label": lab, "interactable": inter}
-                for (i, lab, inter) in triples
-            ],
-        }
-        with open(base + out_suffix, "w", encoding="utf-8") as f:
-            json.dump(sidecar, f, ensure_ascii=False, indent=2)
-
-        if base not in elements_by_base:
-            continue
-
-        elements = elements_by_base[base]
-
-        if inplace_elements:
-            elements_path = base + ".elements.json"
-            for i_el, lab, inter in triples:
-                if 0 <= i_el < len(elements):
-                    elements[i_el]["vlm_label"] = lab
-                    elements[i_el]["vlm_interactable"] = bool(inter)
-            with open(elements_path, "w", encoding="utf-8") as f:
-                json.dump(elements, f, ensure_ascii=False, indent=2)
-
-        if viz_dir:
-            _ensure_dir(viz_dir)
-            out_img = os.path.join(viz_dir, os.path.basename(base) + ".vlm.viz.jpg")
-            draw_vlm_overlay(
-                page_png_by_base[base],
-                elements,
-                triples,   # (i, label, interactable)
-                out_img,
-            )
+        # Final sweep: flush any bases in this pass that weren't flushed
+        unflushed = set(group) - flushed_bases
+        _flush_bases(unflushed)

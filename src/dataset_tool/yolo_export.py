@@ -1,4 +1,12 @@
-"""Export annotations in YOLO format (parallel, streaming-friendly)."""
+"""Export annotations in YOLO format (parallel, streaming-friendly).
+
+Now uses VLM labels as primary class source:
+
+1. If element["vlm_label"] exists and is not "Unknown" (case-insensitive),
+   we use that as the YOLO label (matched against YOLO_CLASSES).
+2. Otherwise, we try to fall back to element["type"] with a small normalization.
+3. If that also fails, we assign the generic class "Text".
+"""
 
 import os
 import random
@@ -11,176 +19,175 @@ from functools import partial
 from .utils import ensure_dir, load_json
 
 # ============================================================
-# YOLO classes (unchanged)
+# YOLO classes: VLM canonical classes
 # ============================================================
 YOLO_CLASSES = [
-    "button",
-    "input",
-    "text",
-    "image",
-    "icon",
-    "link",
-    "heading",
-    "navigation",
-    "card",
-    "list",
-    "table",
-    "form",
-    "video",
-    "checkbox",
-    "dropdown",
-    "search",
-    "menu",
-    "footer",
-    "header",
-    "logo",
-    "ad",
-    "badge",
-    "tooltip",
-    "modal",
-    "tab",
+    "Table",
+    "Column/Browser",
+    "Button",
+    "Utility Button",
+    "App Icon",
+    "Navigation Bar",
+    "Status Bar",
+    "Search Field",
+    "Toolbar",
+    "Tooltip",
+    "Video",
+    "Tab Bar",
+    "Side Bar",
+    "Slider",
+    "Picker",
+    "ContextMenu",
+    "DockMenu",
+    "EditMenu",
+    "Image",
+    "Scroll",
+    "Switch",
+    "File Icon",
+    "Chart",
+    "Window",
+    "Screen",
+    "List",
+    "List Item",
+    "PopUp Menu",
+    "Steppers",
+    "Toggles",
+    "Text Input",
+    "Rating Indicator",
+    "Checkbox",
+    "Radiobox",
+    "Select",
+    "Avatar",
+    "Badge",
+    "Alert",
+    "Progress bar",
+    "Bottom navigation",
+    "Breadcrumb",
+    "Page control",
+    "Link",
+    "Menu",
+    "Pagination",
+    "Tab",
+    "Search Bar",
+    "Date-Time picker",
+    "Calendar",
+    "Text",
+    "Heading",
+    "Code snippet",
+    "Carousel",
+    "Notification",
+    "Logo",
 ]
 
+# quick helpers for type->label fallback
+_YC_LOWER = [c.lower() for c in YOLO_CLASSES]
 
-def map_to_yolo_class(
-    element_type: str, tag: str, attrs: Dict[str, str], inner_text: str = ""
-) -> str:
-    """(unchanged)"""
-    element_type = (element_type or "").lower()
-    tag = (tag or "").lower()
-    classes = (attrs.get("class") or "").lower()
-    elem_id = (attrs.get("id") or "").lower()
-    text = (inner_text or "").lower().strip()
 
-    # ============================================
-    # INTERACTIVE ELEMENTS
-    # ============================================
-    if element_type == "button":
-        return "button"
+def _match_vlm_label(raw: str) -> Optional[str]:
+    """Case-insensitive exact match of a VLM label against YOLO_CLASSES."""
+    if not raw:
+        return None
+    low = raw.strip().lower()
+    if not low or low == "unknown":
+        return None
+    for cls, cls_low in zip(YOLO_CLASSES, _YC_LOWER):
+        if low == cls_low:
+            return cls
+    return None
 
-    if element_type == "link":
-        if "btn" in classes or "button" in classes:
-            return "button"
-        return "link"
 
-    if element_type in {"input", "textarea"}:
-        if "search" in classes or "search" in elem_id or attrs.get("type") == "search":
-            return "search"
-        return "input"
+def _fallback_from_type(el_type: str) -> Optional[str]:
+    """
+    Try to recover a class from the element 'type' field.
 
-    if element_type in {"checkbox", "radio", "switch"}:
-        return "checkbox"
+    Strategy:
+    1) Exact case-insensitive match against YOLO_CLASSES.
+    2) Tiny keyword-based heuristics for a few common patterns.
+    """
+    if not el_type:
+        return None
+    s = el_type.strip()
+    if not s or s.lower() == "unknown":
+        return None
 
-    if element_type == "select":
-        return "dropdown"
+    low = s.lower()
 
-    if element_type == "tab":
-        return "tab"
+    # 1) exact match against known classes
+    for cls, cls_low in zip(YOLO_CLASSES, _YC_LOWER):
+        if low == cls_low:
+            return cls
 
-    # ============================================
-    # CONTENT ELEMENTS
-    # ============================================
-    if element_type == "title":
-        return "heading"
+    # 2) lightweight keyword mapping
+    if "button" in low or "btn" in low:
+        return "Button"
+    if "input" in low or "field" in low:
+        return "Text Input"
+    if "search" in low:
+        # prefer the generic search input
+        return "Search Field"
+    if "checkbox" in low:
+        return "Checkbox"
+    if "radio" in low:
+        return "Radiobox"
+    if "table" in low:
+        return "Table"
+    if "list" in low:
+        return "List"
+    if "tab" in low:
+        return "Tab"
+    if "menu" in low:
+        return "Menu"
+    if "nav" in low:
+        return "Navigation Bar"
+    if "image" in low or "img" in low or "picture" in low:
+        return "Image"
+    if "text" in low or "paragraph" in low or "label" in low:
+        return "Text"
+    if "logo" in low or "brand" in low:
+        return "Logo"
+    if "tooltip" in low:
+        return "Tooltip"
+    if "badge" in low or "chip" in low:
+        return "Badge"
+    if "video" in low:
+        return "Video"
+    if "slider" in low:
+        return "Slider"
+    if "calendar" in low:
+        return "Calendar"
 
-    if element_type in {"paragraph", "code"}:
-        return "text"
+    return None
 
-    if element_type == "image":
-        if "logo" in classes or "logo" in elem_id or "brand" in classes:
-            return "logo"
-        return "image"
 
-    if element_type in {"icon", "svg"}:
-        return "icon"
+def map_to_yolo_class(el: Dict[str, Any]) -> str:
+    """
+    Decide YOLO class for an element.
 
-    if element_type in {"video", "audio"}:
-        return "video"
+    Priority:
+    1. Use 'vlm_label' if present and not 'Unknown', mapped to YOLO_CLASSES.
+    2. Else, try element['type'] as a fallback.
+    3. Else, assign generic 'Element'.
+    """
+    # 1) VLM label (primary)
+    vlm_label = (el.get("vlm_label") or "").strip()
+    label = _match_vlm_label(vlm_label)
+    if label is not None:
+        return label
 
-    # ============================================
-    # DATA STRUCTURES
-    # ============================================
-    if element_type == "table":
-        return "table"
+    # 2) Fallback: element type
+    el_type = (el.get("type") or "").strip()
+    label = _fallback_from_type(el_type)
+    if label is not None:
+        return label
 
-    if element_type in {"list", "list_item"}:
-        return "list"
-
-    if element_type == "form":
-        return "form"
-
-    # ============================================
-    # STRUCTURAL
-    # ============================================
-    if element_type == "nav" or element_type == "breadcrumb":
-        return "navigation"
-
-    if element_type == "header":
-        return "header"
-
-    if element_type == "footer":
-        return "footer"
-
-    # ============================================
-    # UI COMPONENTS
-    # ============================================
-    if element_type == "card":
-        return "card"
-
-    if element_type == "modal":
-        return "modal"
-
-    if element_type == "tooltip":
-        return "tooltip"
-
-    if element_type in {"badge", "chip"}:
-        return "badge"
-
-    if element_type == "ad":
-        return "ad"
-
-    # ============================================
-    # GENERIC/CONTAINER -> Try to infer from context
-    # ============================================
-    if element_type in {"section", "article", "aside", "main", "div", "container"}:
-        if "card" in classes or "panel" in classes or "tile" in classes:
-            return "card"
-        if "nav" in classes or "menu" in classes:
-            return "navigation"
-        if "header" in classes or "masthead" in classes:
-            return "header"
-        if "footer" in classes:
-            return "footer"
-
-        if text and len(text) < 30:
-            button_words = [
-                "click",
-                "submit",
-                "send",
-                "go",
-                "search",
-                "buy",
-                "add",
-                "delete",
-            ]
-            if any(word in text for word in button_words):
-                return "button"
-
-        return "text"
-
-    if element_type == "figure":
-        return "image"
-
-    if element_type == "pagination":
-        return "navigation"
-
-    return "text"
+    # 3) Final fallback: generic bucket
+    return "Text"
 
 
 def bbox_to_yolo_format(
     rect: Dict[str, int], img_width: int, img_height: int
 ) -> Tuple[float, float, float, float]:
-    """(unchanged)"""
+    """Convert rect {x,y,w,h} in pixel coords to YOLO-normalized cx,cy,w,h."""
     x, y, w, h = rect["x"], rect["y"], rect["w"], rect["h"]
     center_x = x + w / 2.0
     center_y = y + h / 2.0
@@ -207,7 +214,6 @@ def _choose_split(
         abs((train_ratio + val_ratio + test_ratio) - 1.0) < 1e-6
     ), "Split ratios must sum to 1.0"
     h = hashlib.md5(f"{seed}/{stem}".encode("utf-8")).hexdigest()
-    # Take first 15 hex chars -> int -> normalize (good enough uniformity)
     r = int(h[:15], 16) / float(16**15)
     if r < train_ratio:
         return "train"
@@ -225,7 +231,6 @@ def _scan_records(raw_dir: str) -> Iterable[Dict[str, str]]:
     # Expect files side-by-side: <stem>.meta.json, <stem>.png, <stem>.elements.json
     with os.scandir(raw_dir) as it:
         for entry in it:
-            # Extremely cheap filter: suffix match only (no stat call)
             name = entry.name
             if not name.endswith(".meta.json"):
                 continue
@@ -289,7 +294,6 @@ def _process_one(
 
         # Convert image to JPG
         img_dest = os.path.join(_G["yolo_dir"], "images", split, f"{rec['stem']}.jpg")
-        # Avoid partial writes
         tmp_img_dest = img_dest + ".tmp"
 
         with Image.open(rec["image"]) as img:
@@ -302,17 +306,17 @@ def _process_one(
         class_counts_local = {cls: 0 for cls in YOLO_CLASSES}
         label_lines: List[str] = []
         for el in elements:
-            el_type = el.get("type", "unknown")
-            tag = el.get("tag", "")
-            attrs = el.get("attrs", {})
-            inner_text = el.get("inner_text", "")
+            rect = el.get("rect")
+            if not rect:
+                continue
 
-            yolo_class = map_to_yolo_class(el_type, tag, attrs, inner_text)
+            yolo_class = map_to_yolo_class(el)
             if yolo_class not in _G["class_to_id"]:
+                # Should not happen, but safe-guard
                 continue
 
             class_id = _G["class_to_id"][yolo_class]
-            cx, cy, w, h = bbox_to_yolo_format(el["rect"], img_w, img_h)
+            cx, cy, w, h = bbox_to_yolo_format(rect, img_w, img_h)
             if w <= 0 or h <= 0:
                 continue
 
@@ -359,7 +363,6 @@ def export_yolo_dataset(
             classes.txt
             STATS.txt
     """
-    # Seed only used for deterministic split hashing
     random.seed(seed)
 
     # Prepare output structure
@@ -393,7 +396,6 @@ def export_yolo_dataset(
     total_processed = 0
     total_errors = 0
 
-    # Stream scan -> process in parallel
     iterable = _scan_records(raw_dir)
 
     try:
@@ -408,15 +410,15 @@ def export_yolo_dataset(
             ),
             maxtasksperchild=1000,
         ) as pool:
-            # imap_unordered lazily consumes the generator; no giant queues
             for ok, split, n_anns, class_counts_local, stem, err in tqdm(
                 pool.imap_unordered(_process_one, iterable, chunksize=chunksize),
                 desc="Exporting",
                 unit="file",
             ):
                 if ok:
-                    split_image_counts[split] += 1
-                    split_ann_counts[split] += n_anns
+                    if split in split_image_counts:
+                        split_image_counts[split] += 1
+                        split_ann_counts[split] += n_anns
                     for k, v in class_counts_local.items():
                         class_counts[k] += v
                 else:
@@ -494,6 +496,6 @@ names: {YOLO_CLASSES}
         print("\nTop 5 classes:")
         for cls, count in nonzero[:5]:
             pct = 100 * count / total_annotations if total_annotations > 0 else 0
-            print(f"  {cls:15s}: {count:5d} ({pct:5.1f}%)")
+            print(f"  {cls:25s}: {count:7d} ({pct:5.1f}%)")
     print(f"\nConfiguration saved to: {os.path.join(yolo_dir, 'data.yaml')}")
     print(f"Statistics saved to: {os.path.join(yolo_dir, 'STATS.txt')}")
