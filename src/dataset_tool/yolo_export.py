@@ -11,12 +11,13 @@ Now uses VLM labels as primary class source:
 import os
 import random
 import hashlib
-from typing import List, Dict, Any, Tuple, Iterable, Optional
-from pathlib import Path
+import numpy as np
 from tqdm import tqdm
-from multiprocessing import Pool, cpu_count
+from pathlib import Path
 from functools import partial
 from .utils import ensure_dir, load_json
+from multiprocessing import Pool, cpu_count
+from typing import List, Dict, Any, Tuple, Iterable, Optional
 
 # ============================================================
 # YOLO classes: VLM canonical classes
@@ -82,6 +83,68 @@ YOLO_CLASSES = [
 # quick helpers for type->label fallback
 _YC_LOWER = [c.lower() for c in YOLO_CLASSES]
 
+
+# Which YOLO classes are considered layout/containers vs atomic UI elements
+CONTAINER_CLASS_NAMES = {
+    "Table",
+    "Column/Browser",
+    "Navigation Bar",
+    "Status Bar",
+    "Toolbar",
+    "Tab Bar",
+    "Side Bar",
+    "ContextMenu",
+    "DockMenu",
+    "EditMenu",
+    "Scroll",
+    "Window",
+    "Screen",
+    "List",
+    "PopUp Menu",
+    "Alert",
+    "Bottom navigation",
+    "Breadcrumb",
+    "Menu",
+    "Pagination",
+    "Search Bar",
+    "Date-Time picker",
+    "Calendar",
+    "Carousel",
+    "Notification",
+}
+
+ATOMIC_CLASS_NAMES = {
+    "Button",
+    "Utility Button",
+    "App Icon",
+    "Search Field",
+    "Tooltip",
+    "Video",
+    "Slider",
+    "Picker",
+    "Image",
+    "Switch",
+    "File Icon",
+    "Chart",
+    "List Item",
+    "Steppers",
+    "Toggles",
+    "Text Input",
+    "Rating Indicator",
+    "Checkbox",
+    "Radiobox",
+    "Select",
+    "Avatar",
+    "Badge",
+    "Progress bar",
+    "Page control",
+    "Link",
+    "Tab",
+    "Text",
+    "Heading",
+    "Code snippet",
+    "Logo",
+}
 
 def _match_vlm_label(raw: str) -> Optional[str]:
     """Case-insensitive exact match of a VLM label against YOLO_CLASSES."""
@@ -198,6 +261,80 @@ def bbox_to_yolo_format(
     return center_x_norm, center_y_norm, width_norm, height_norm
 
 
+def _iou_xyxy(a: np.ndarray, b: np.ndarray) -> float:
+    """IoU between two boxes [x1,y1,x2,y2] in normalized coords."""
+    inter_x1 = max(a[0], b[0])
+    inter_y1 = max(a[1], b[1])
+    inter_x2 = min(a[2], b[2])
+    inter_y2 = min(a[3], b[3])
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter = inter_w * inter_h
+    if inter <= 0:
+        return 0.0
+    area_a = (a[2] - a[0]) * (a[3] - a[1])
+    area_b = (b[2] - b[0]) * (b[3] - b[1])
+    union = area_a + area_b - inter
+    if union <= 0:
+        return 0.0
+    return inter / union
+
+
+def _clean_gt_boxes(labels: np.ndarray, container_ids: set[int], iou_thr: float = 0.85) -> np.ndarray:
+    """
+    Remove duplicate GTs per class using high IoU clustering.
+
+    labels: [N,5] -> [cls, cx, cy, w, h] (normalized).
+    For container classes -> keep largest box in a cluster.
+    For atomic classes   -> keep smallest box in a cluster.
+    """
+    if labels.shape[0] <= 1:
+        return labels
+
+    cls_ids = labels[:, 0].astype(int)
+    cxcywh = labels[:, 1:]
+
+    # convert to xyxy (still normalized 0..1)
+    xyxy = np.zeros_like(cxcywh)
+    xyxy[:, 0] = cxcywh[:, 0] - cxcywh[:, 2] / 2.0  # x1
+    xyxy[:, 1] = cxcywh[:, 1] - cxcywh[:, 3] / 2.0  # y1
+    xyxy[:, 2] = cxcywh[:, 0] + cxcywh[:, 2] / 2.0  # x2
+    xyxy[:, 3] = cxcywh[:, 1] + cxcywh[:, 3] / 2.0  # y2
+
+    keep_indices: list[int] = []
+
+    for c in np.unique(cls_ids):
+        idxs = np.where(cls_ids == c)[0]
+        if len(idxs) == 1:
+            keep_indices.append(idxs[0])
+            continue
+
+        remaining = list(idxs)
+        while remaining:
+            i = remaining.pop(0)
+            cluster = [i]
+            to_remove = []
+            for j in remaining:
+                if _iou_xyxy(xyxy[i], xyxy[j]) > iou_thr:
+                    cluster.append(j)
+                    to_remove.append(j)
+            remaining = [k for k in remaining if k not in to_remove]
+
+            # choose representative from cluster
+            areas = [
+                (xyxy[k][2] - xyxy[k][0]) * (xyxy[k][3] - xyxy[k][1]) for k in cluster
+            ]
+            if c in container_ids:
+                # for containers -> keep largest
+                best = cluster[int(np.argmax(areas))]
+            else:
+                # for atomic -> keep smallest
+                best = cluster[int(np.argmin(areas))]
+            keep_indices.append(best)
+
+    keep_indices = sorted(set(keep_indices))
+    return labels[keep_indices]
+
 # ============================================================
 # Parallel/export infrastructure
 # ============================================================
@@ -253,6 +390,7 @@ _G = {
     "class_to_id": None,
     "seed": None,
     "ratios": None,
+    "container_ids": None,
 }
 
 
@@ -261,11 +399,13 @@ def _init_worker(
     class_to_id: Dict[str, int],
     seed: int,
     ratios: Tuple[float, float, float],
+    container_ids: set[int]
 ):
     _G["yolo_dir"] = yolo_dir
     _G["class_to_id"] = class_to_id
     _G["seed"] = seed
     _G["ratios"] = ratios
+    _G["container_ids"] = container_ids
 
 
 def _process_one(
@@ -304,7 +444,10 @@ def _process_one(
 
         # Convert annotations
         class_counts_local = {cls: 0 for cls in YOLO_CLASSES}
-        label_lines: List[str] = []
+
+        # Collect raw labels [cls, cx, cy, w, h] before dedup
+        raw_labels: List[Tuple[float, float, float, float, float]] = []
+
         for el in elements:
             rect = el.get("rect")
             if not rect:
@@ -312,7 +455,6 @@ def _process_one(
 
             yolo_class = map_to_yolo_class(el)
             if yolo_class not in _G["class_to_id"]:
-                # Should not happen, but safe-guard
                 continue
 
             class_id = _G["class_to_id"][yolo_class]
@@ -320,8 +462,26 @@ def _process_one(
             if w <= 0 or h <= 0:
                 continue
 
-            label_lines.append(f"{class_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
-            class_counts_local[yolo_class] += 1
+            raw_labels.append((float(class_id), cx, cy, w, h))
+
+        label_lines: List[str] = []
+        if raw_labels:
+            labels_arr = np.array(raw_labels, dtype=float)  # [N,5]
+
+            # Clean GT: remove duplicate overlapping boxes per class
+            labels_arr = _clean_gt_boxes(labels_arr, _G["container_ids"], iou_thr=0.85)
+
+            # Rebuild label_lines and class_counts after cleaning
+            for cls_id, cx, cy, w, h in labels_arr:
+                cls_id_int = int(cls_id)
+                label_lines.append(
+                    f"{cls_id_int} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}"
+                )
+                # find class name for stats
+                for name, cid in _G["class_to_id"].items():
+                    if cid == cls_id_int:
+                        class_counts_local[name] += 1
+                        break
 
         # Write label file (YOLO expects file even if empty)
         label_dest = os.path.join(_G["yolo_dir"], "labels", split, f"{rec['stem']}.txt")
@@ -372,6 +532,13 @@ def export_yolo_dataset(
 
     # Class mapping
     class_to_id = {cls: idx for idx, cls in enumerate(YOLO_CLASSES)}
+    
+    # Container class ids for GT cleaning
+    container_ids = {
+        class_to_id[name]
+        for name in CONTAINER_CLASS_NAMES
+        if name in class_to_id
+    }
 
     # Worker pool sizing
     if workers is None:
@@ -407,6 +574,7 @@ def export_yolo_dataset(
                 class_to_id,
                 seed,
                 (train_ratio, val_ratio, test_ratio),
+                container_ids,
             ),
             maxtasksperchild=1000,
         ) as pool:
