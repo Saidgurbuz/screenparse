@@ -326,9 +326,9 @@ class VLMConfig:
     limit_mm_per_prompt: dict | None = None
     
     # NEW: parallel CPU & multimodal tuning
-    mm_encoder_tp_mode: str = "weights"    # "data" when TP > 1
-    mm_processor_cache_gb: float = 0.0     # e.g. 4.0 to enable cache
-    mm_processor_cache_type: str = "shm"  # let vLLM choose (e.g. "shm")
+    # mm_encoder_tp_mode: str = "weights"    # "data" when TP > 1
+    # mm_processor_cache_gb: float = 0.0     # e.g. 4.0 to enable cache
+    # mm_processor_cache_type: str = "shm"  # let vLLM choose (e.g. "shm")
 
 class VLMEngine:
     """vLLM wrapper that uses the model's chat template for multimodal prompts."""
@@ -342,9 +342,9 @@ class VLMEngine:
             dtype=cfg.dtype,
             trust_remote_code=True,
             tokenizer_mode="auto",
-            mm_encoder_tp_mode=cfg.mm_encoder_tp_mode,
-            mm_processor_cache_gb=cfg.mm_processor_cache_gb,
-            mm_processor_cache_type=cfg.mm_processor_cache_type,
+            # mm_encoder_tp_mode=cfg.mm_encoder_tp_mode,
+            # mm_processor_cache_gb=cfg.mm_processor_cache_gb,
+            # mm_processor_cache_type=cfg.mm_processor_cache_type,
         )
         self.sampling = SamplingParams(
             max_tokens=cfg.max_new_tokens,
@@ -427,7 +427,7 @@ def label_dir(
     min_elem_size: int = 3,
     inplace_elements: bool = True,
     viz_dir: Optional[str] = None,
-    screens_per_pass: int = 8,   # outer chunking to cap memory
+    screens_per_pass: int = 64,   # outer chunking to cap memory
     shard_index: int = 0,         # NEW: which shard (0-based)
     num_shards: int = 1,          # NEW: total number of shards
 ) -> None:
@@ -487,9 +487,9 @@ def label_dir(
         tensor_parallel_size=tensor_parallel_size,
         max_model_len=16384,
         limit_mm_per_prompt={"image": 2, "video": 0, "audio": 0},
-        mm_encoder_tp_mode="data" if tensor_parallel_size > 1 else "weights",
-        mm_processor_cache_gb=4.0,      # e.g. 4 GB for HF processor cache
-        mm_processor_cache_type="shm",
+        # mm_encoder_tp_mode="data" if tensor_parallel_size > 1 else "weights",
+        # mm_processor_cache_gb=4.0,      # e.g. 4 GB for HF processor cache
+        # mm_processor_cache_type="shm",
     )
 
     engine = VLMEngine(cfg)
@@ -537,6 +537,10 @@ def label_dir(
             w = min(W - x, w + 2 * padding)
             h = min(H - y, h + 2 * padding)
             if w < 2 or h < 2:
+                return False
+            
+            aspect_ratio = max(w, h) / min(w, h)
+            if aspect_ratio > 199:
                 return False
             im.crop((x, y, x + w, y + h)).save(out_path)
             return True
@@ -613,11 +617,13 @@ def label_dir(
 
             # Skip if already processed
             if _is_already_processed(elements_path):
+                print(f"[VLM] Skipping already processed: {base}")
                 continue
 
             elements = _load_json(elements_path)
             meta = _load_json(meta_path)
             if elements is None or meta is None or not elements:
+                print(f"[VLM] Skipping invalid/missing data: {base}")
                 continue
             scale = element_scale(meta)
 
@@ -626,11 +632,21 @@ def label_dir(
                 page_png_by_base[base] = page_png
 
             with Image.open(page_png) as im:
+                # Skip entire page if aspect ratio is too extreme
+                W, H = im.size
+                if W > 0 and H > 0:
+                    page_aspect_ratio = max(W, H) / min(W, H)
+                    if page_aspect_ratio > 199:
+                        continue
                 for idx, el in enumerate(elements):
                     r = el.get("rect") or {}
                     w = int(r.get("w", 0)); h = int(r.get("h", 0))
                     if w < min_elem_size or h < min_elem_size:
                         continue
+                    if w > 0 and h > 0:
+                        aspect_ratio = max(w, h) / min(w, h)
+                        if aspect_ratio > 199:
+                            continue
 
                     crop_name = f"{os.path.basename(base)}__el{idx}.png"
                     crop_path = os.path.join(crops_dir, crop_name)
