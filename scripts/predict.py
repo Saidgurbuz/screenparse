@@ -1,9 +1,9 @@
 # training/predict_folder.py
 """
 python scripts/predict.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui11/weights/best.pt \
+    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels3/weights/best.pt \
     --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
-    --conf 0.21
+    --conf 0.17
 """
 import random
 import argparse
@@ -24,7 +24,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", required=True)
     ap.add_argument("--source", default="images/val")
-    ap.add_argument("--imgsz", type=int, default=1280)
+    ap.add_argument("--imgsz", type=int, default=1440)
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--project", type=str, default="viz/preds")
     ap.add_argument("--name", type=str, default=None)

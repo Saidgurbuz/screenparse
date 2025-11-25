@@ -57,3 +57,8 @@ viz/
 real_ss/
 old_data/
 urls/
+*.sh
+*.pdf
+*.csv
+*.pt
+*.ipynb
