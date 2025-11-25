@@ -65,9 +65,14 @@ def main():
     dev = args.device or auto_device()
     model = YOLO(args.weights)
     names = model.names
-    container_ids, atomic_ids = get_class_id_sets(names)
+    container_ids, atomic_ids, non_nestable_ids = get_class_id_sets(names)
 
-    out_dir = Path(args.project) / args.name
+    base_dir = Path(args.project) / args.name
+    out_dir = base_dir
+    counter = 1
+    while out_dir.exists():
+        out_dir = Path(str(base_dir) + str(counter))
+        counter += 1
     out_dir.mkdir(parents=True, exist_ok=True)
     labels_dir = out_dir / "labels"
     labels_dir.mkdir(parents=True, exist_ok=True)
@@ -115,6 +120,7 @@ def main():
             clss,
             container_ids,
             atomic_ids,
+            non_nestable_ids,
             conf_thr=args.conf,
             cluster_iou=args.cluster_iou,
         )
