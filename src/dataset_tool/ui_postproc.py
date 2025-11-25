@@ -66,13 +66,37 @@ ATOMIC_CLASS_NAMES = {
     "Logo",
 }
 
+NON_NESTABLE_CLASS_NAMES = {
+    "Text",
+    "Heading",
+    "Link",
+    "Button",
+    "Utility Button",
+    "App Icon",
+    "File Icon",
+    "Image",
+    "Logo",
+    "Checkbox",
+    "Radiobox",
+    "Switch",
+    "Slider",
+    "Text Input",
+    "Search Field",
+    "Date-Time picker",
+    "Progress bar",
+    "Rating Indicator",
+    "Avatar",
+    "Badge",
+}
 
-def get_class_id_sets(model_names: dict[int, str]) -> Tuple[Set[int], Set[int]]:
-    """Map container/atomic name sets to class ID sets for a given YOLO model."""
-    name_to_id = {v: int(k) for k, v in model_names.items()}
-    container_ids = {name_to_id[n] for n in CONTAINER_CLASS_NAMES if n in name_to_id}
-    atomic_ids = {name_to_id[n] for n in ATOMIC_CLASS_NAMES if n in name_to_id}
-    return container_ids, atomic_ids
+
+def get_class_id_sets(model_names: dict[int, str]) -> Tuple[Set[int], Set[int], Set[int]]:
+    """Map container/atomic/non-nestable name sets to class ID sets for a given YOLO model."""
+    name_to_id = {v.lower(): int(k) for k, v in model_names.items()}
+    container_ids = {name_to_id[n.lower()] for n in CONTAINER_CLASS_NAMES if n.lower() in name_to_id}
+    atomic_ids = {name_to_id[n.lower()] for n in ATOMIC_CLASS_NAMES if n.lower() in name_to_id}
+    non_nestable_ids = {name_to_id[n.lower()] for n in NON_NESTABLE_CLASS_NAMES if n.lower() in name_to_id}
+    return container_ids, atomic_ids, non_nestable_ids
 
 
 # --- IoU and geometry helpers ---
@@ -109,7 +133,7 @@ def area(box: np.ndarray) -> float:
     return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
 
 
-def contains(parent: np.ndarray, child: np.ndarray, min_cover: float = 0.85) -> bool:
+def contains(parent: np.ndarray, child: np.ndarray, min_cover: float = 0.65) -> bool:
     """Return True if parent covers at least min_cover fraction of child."""
     inter_x1 = max(parent[0], child[0])
     inter_y1 = max(parent[1], child[1])
@@ -140,6 +164,8 @@ def dedup_per_class(
     scores: np.ndarray,
     clss: np.ndarray,
     t_cluster: float = 0.75,
+    non_nestable_ids: set[int] | None = None,
+    contain_thr: float = 0.65,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Merge same-class boxes with high IoU into a single box (same element).
@@ -148,7 +174,6 @@ def dedup_per_class(
     boxes = np.asarray(boxes, dtype=float)
     scores = np.asarray(scores, dtype=float)
     clss = np.asarray(clss, dtype=int)
-
     new_boxes = []
     new_scores = []
     new_clss = []
@@ -173,7 +198,16 @@ def dedup_per_class(
             cluster = [root]
             to_remove = []
             for r in remaining:
-                if ious[root, r] > t_cluster:
+                is_dup = ious[root, r] > t_cluster
+                if (not is_dup) and non_nestable_ids and (c in non_nestable_ids):
+                    # containment-based duplicate for non-nestable classes
+                    box_root = boxes[idxs[root]]
+                    box_r = boxes[idxs[r]]
+                    if contains(box_root, box_r, contain_thr) or contains(
+                        box_r, box_root, contain_thr
+                    ):
+                        is_dup = True
+                if is_dup:
                     cluster.append(r)
                     to_remove.append(r)
             remaining = [r for r in remaining if r not in to_remove]
@@ -193,7 +227,7 @@ def build_parent_child_graph(
     boxes: np.ndarray,
     clss: np.ndarray,
     container_ids: Set[int],
-    contain_thr: float = 0.85,
+    contain_thr: float = 0.75,
 ):
     N = len(boxes)
     parents = [[] for _ in range(N)]
@@ -217,7 +251,7 @@ def hierarchy_filter(
     container_ids: Set[int],
     atomic_ids: Set[int],
     min_children_default: int = 1,
-    contain_thr: float = 0.85,
+    contain_thr: float = 0.65,
     max_area_ratio_single_child: float = 1.3,
     iou_wrapper_thr: float = 0.9,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -298,6 +332,7 @@ def postprocess_detections(
     clss: np.ndarray,
     container_ids: Set[int],
     atomic_ids: Set[int],
+    non_nestable_ids: Set[int],
     conf_thr: float = 0.25,
     cluster_iou: float = 0.75,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -310,19 +345,25 @@ def postprocess_detections(
     boxes, scores, clss = boxes[m], scores[m], clss[m]
     if len(boxes) == 0:
         return boxes, scores, clss
-
     # 1) merge same-class duplicates
-    boxes, scores, clss = dedup_per_class(boxes, scores, clss, t_cluster=cluster_iou)
-
-    # 2) optional: score reweighting
-    scores = reweight_scores(boxes, scores, clss, container_ids, atomic_ids)
-
-    # 3) hierarchy-aware container filtering
-    boxes, scores, clss = hierarchy_filter(
+    boxes, scores, clss = dedup_per_class(
         boxes,
         scores,
         clss,
-        container_ids,
-        atomic_ids,
+        t_cluster=cluster_iou,
+        non_nestable_ids=non_nestable_ids,
+        contain_thr=0.9,
     )
+
+    # 2) optional: score reweighting
+    # scores = reweight_scores(boxes, scores, clss, container_ids, atomic_ids)
+
+    # 3) hierarchy-aware container filtering
+    # boxes, scores, clss = hierarchy_filter(
+    #     boxes,
+    #     scores,
+    #     clss,
+    #     container_ids,
+    #     atomic_ids,
+    # )
     return boxes, scores, clss

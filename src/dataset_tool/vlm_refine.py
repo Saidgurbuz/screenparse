@@ -475,6 +475,9 @@ def label_dir(
 
     # Slice to this shard's subset
     bases = bases_all[shard_index::num_shards]
+    
+    # # reverse the bases to iterate from end to start
+    # bases = list(reversed(bases))
 
     print(
         f"[VLM] Total bases: {len(bases_all)} | "
@@ -654,6 +657,8 @@ def label_dir(
                         ok = _crop_from_open_image(im, r, scale, crop_path, padding=5)
                         if not ok:
                             continue
+                    if os.path.getsize(crop_path) == 0:
+                        continue
 
                     try:
                         html_snippet = reconstruct_html_simple(el)

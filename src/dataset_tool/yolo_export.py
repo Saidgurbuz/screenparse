@@ -146,6 +146,29 @@ ATOMIC_CLASS_NAMES = {
     "Logo",
 }
 
+NON_NESTABLE_CLASS_NAMES = {
+    "Text",
+    "Heading",
+    "Link",
+    "Button",
+    "Utility Button",
+    "App Icon",
+    "File Icon",
+    "Image",
+    "Logo",
+    "Checkbox",
+    "Radiobox",
+    "Switch",
+    "Slider",
+    "Text Input",
+    "Search Field",
+    "Date-Time picker",
+    "Progress bar",
+    "Rating Indicator",
+    "Avatar",
+    "Badge",
+}
+
 def _match_vlm_label(raw: str) -> Optional[str]:
     """Case-insensitive exact match of a VLM label against YOLO_CLASSES."""
     if not raw:
@@ -280,7 +303,24 @@ def _iou_xyxy(a: np.ndarray, b: np.ndarray) -> float:
     return inter / union
 
 
-def _clean_gt_boxes(labels: np.ndarray, container_ids: set[int], iou_thr: float = 0.85) -> np.ndarray:
+def _contains_xyxy(big: np.ndarray, small: np.ndarray, min_cover: float = 0.9) -> bool:
+    """Return True if `big` covers at least min_cover fraction of `small`."""
+    inter_x1 = max(big[0], small[0])
+    inter_y1 = max(big[1], small[1])
+    inter_x2 = min(big[2], small[2])
+    inter_y2 = min(big[3], small[3])
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter = inter_w * inter_h
+    if inter <= 0:
+        return False
+    small_area = (small[2] - small[0]) * (small[3] - small[1])
+    if small_area <= 0:
+        return False
+    return inter / small_area >= min_cover
+
+
+def _clean_gt_boxes(labels: np.ndarray, container_ids: set[int], non_nestable_ids: set[int], iou_thr: float = 0.65, contain_thr: float = 0.65) -> np.ndarray:
     """
     Remove duplicate GTs per class using high IoU clustering.
 
@@ -315,7 +355,18 @@ def _clean_gt_boxes(labels: np.ndarray, container_ids: set[int], iou_thr: float 
             cluster = [i]
             to_remove = []
             for j in remaining:
-                if _iou_xyxy(xyxy[i], xyxy[j]) > iou_thr:
+                # same-class candidate
+                iou_val = _iou_xyxy(xyxy[i], xyxy[j])
+                is_dup = iou_val > iou_thr
+
+                # extra rule: containment for non-nestable classes
+                if (not is_dup) and (c in non_nestable_ids):
+                    if _contains_xyxy(xyxy[i], xyxy[j], contain_thr) or _contains_xyxy(
+                        xyxy[j], xyxy[i], contain_thr
+                    ):
+                        is_dup = True
+
+                if is_dup:
                     cluster.append(j)
                     to_remove.append(j)
             remaining = [k for k in remaining if k not in to_remove]
@@ -391,6 +442,7 @@ _G = {
     "seed": None,
     "ratios": None,
     "container_ids": None,
+    "non_nestable_ids": None,
 }
 
 
@@ -399,13 +451,15 @@ def _init_worker(
     class_to_id: Dict[str, int],
     seed: int,
     ratios: Tuple[float, float, float],
-    container_ids: set[int]
+    container_ids: set[int],
+    non_nestable_ids: set[int],
 ):
     _G["yolo_dir"] = yolo_dir
     _G["class_to_id"] = class_to_id
     _G["seed"] = seed
     _G["ratios"] = ratios
     _G["container_ids"] = container_ids
+    _G["non_nestable_ids"] = non_nestable_ids
 
 
 def _process_one(
@@ -447,6 +501,7 @@ def _process_one(
 
         # Collect raw labels [cls, cx, cy, w, h] before dedup
         raw_labels: List[Tuple[float, float, float, float, float]] = []
+        raw_label_lines: List[str] = []
 
         for el in elements:
             rect = el.get("rect")
@@ -463,13 +518,20 @@ def _process_one(
                 continue
 
             raw_labels.append((float(class_id), cx, cy, w, h))
+            raw_label_lines.append(f"{int(class_id)} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}")
 
         label_lines: List[str] = []
         if raw_labels:
             labels_arr = np.array(raw_labels, dtype=float)  # [N,5]
 
             # Clean GT: remove duplicate overlapping boxes per class
-            labels_arr = _clean_gt_boxes(labels_arr, _G["container_ids"], iou_thr=0.85)
+            labels_arr = _clean_gt_boxes(
+                labels_arr,
+                _G["container_ids"],
+                _G["non_nestable_ids"],
+                iou_thr=0.65,
+                contain_thr=0.65,
+            )
 
             # Rebuild label_lines and class_counts after cleaning
             for cls_id, cx, cy, w, h in labels_arr:
@@ -529,6 +591,7 @@ def export_yolo_dataset(
     for split in ["train", "val", "test"]:
         ensure_dir(os.path.join(yolo_dir, "images", split))
         ensure_dir(os.path.join(yolo_dir, "labels", split))
+        ensure_dir(os.path.join(yolo_dir, "labels_raw", split))
 
     # Class mapping
     class_to_id = {cls: idx for idx, cls in enumerate(YOLO_CLASSES)}
@@ -537,6 +600,12 @@ def export_yolo_dataset(
     container_ids = {
         class_to_id[name]
         for name in CONTAINER_CLASS_NAMES
+        if name in class_to_id
+    }
+    
+    non_nestable_ids = {
+        class_to_id[name]
+        for name in NON_NESTABLE_CLASS_NAMES
         if name in class_to_id
     }
 
@@ -575,6 +644,7 @@ def export_yolo_dataset(
                 seed,
                 (train_ratio, val_ratio, test_ratio),
                 container_ids,
+                non_nestable_ids,
             ),
             maxtasksperchild=1000,
         ) as pool:
@@ -639,7 +709,7 @@ names: {YOLO_CLASSES}
     nonzero.sort(key=lambda x: x[1], reverse=True)
     for cls, c in nonzero:
         pct = 100.0 * c / total_annotations if total_annotations > 0 else 0.0
-        stats_lines.append(f"{cls}: {c} ({pct:.1f}%)\n")
+        stats_lines.append(f"{cls}: {c} ({pct:.2f}%)\n")
 
     with open(os.path.join(yolo_dir, "STATS.txt"), "w") as f:
         f.write("".join(stats_lines))
@@ -664,6 +734,6 @@ names: {YOLO_CLASSES}
         print("\nTop 5 classes:")
         for cls, count in nonzero[:5]:
             pct = 100 * count / total_annotations if total_annotations > 0 else 0
-            print(f"  {cls:25s}: {count:7d} ({pct:5.1f}%)")
+            print(f"  {cls:25s}: {count:7d} ({pct:5.2f}%)")
     print(f"\nConfiguration saved to: {os.path.join(yolo_dir, 'data.yaml')}")
     print(f"Statistics saved to: {os.path.join(yolo_dir, 'STATS.txt')}")
