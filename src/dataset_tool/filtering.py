@@ -4,6 +4,78 @@ from typing import List, Dict, Any, Set, Tuple
 import numpy as np
 
 
+def remap_hierarchy_after_filtering(
+    original_elements: List[Dict[str, Any]],
+    filtered_elements: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    After filtering, remap parent-child relationships.
+    
+    If an intermediate container was filtered out, children should point
+    to the nearest surviving ancestor. This preserves the logical hierarchy
+    even when redundant containers are removed.
+    
+    Args:
+        original_elements: Full list with _dom_index, _parent_dom_index, _children_dom_indices
+        filtered_elements: Subset that passed filtering
+    
+    Returns:
+        filtered_elements with updated parent_index and children_indices fields
+    """
+    if not filtered_elements:
+        return []
+    
+    # Build mapping from old DOM index to new filtered index
+    old_to_new: Dict[int, int] = {}
+    for new_idx, el in enumerate(filtered_elements):
+        old_idx = el.get("_dom_index")
+        if old_idx is not None:
+            old_to_new[old_idx] = new_idx
+    
+    # Build a lookup of original elements by their DOM index
+    original_by_dom_idx: Dict[int, Dict[str, Any]] = {}
+    for el in original_elements:
+        dom_idx = el.get("_dom_index")
+        if dom_idx is not None:
+            original_by_dom_idx[dom_idx] = el
+    
+    # For each filtered element, find its nearest surviving ancestor
+    for el in filtered_elements:
+        old_parent_idx = el.get("_parent_dom_index")
+        
+        # Walk up the chain until we find a parent that survived filtering
+        new_parent_idx = None
+        current_parent_dom_idx = old_parent_idx
+        
+        while current_parent_dom_idx is not None:
+            if current_parent_dom_idx in old_to_new:
+                # This parent survived filtering
+                new_parent_idx = old_to_new[current_parent_dom_idx]
+                break
+            else:
+                # This parent was filtered out, go to its parent
+                parent_el = original_by_dom_idx.get(current_parent_dom_idx)
+                if parent_el:
+                    current_parent_dom_idx = parent_el.get("_parent_dom_index")
+                else:
+                    break
+        
+        el["parent_index"] = new_parent_idx
+    
+    # Build parent -> children mapping from the parent_index we just set
+    parent_to_children: Dict[int, List[int]] = {}
+    for new_idx, el in enumerate(filtered_elements):
+        parent_idx = el.get("parent_index")
+        if parent_idx is not None:
+            parent_to_children.setdefault(parent_idx, []).append(new_idx)
+    
+    # Update children_indices based on who actually points to this element as parent
+    for new_idx, el in enumerate(filtered_elements):
+        el["children_indices"] = parent_to_children.get(new_idx, [])
+    
+    return filtered_elements
+
+
 def compute_iou(box1: Dict[str, int], box2: Dict[str, int]) -> float:
     """Compute Intersection over Union between two boxes."""
     x1 = max(box1["x"], box2["x"])
@@ -321,6 +393,9 @@ def filter_elements(
 ) -> List[Dict[str, Any]]:
     """
     Filter elements to remove duplicates, tiny boxes, and hidden elements.
+    
+    Also remaps parent-child hierarchy after filtering so that children of
+    removed parents point to their nearest surviving ancestor.
 
     Args:
         elements: List of element dictionaries with 'rect' and 'type' keys
@@ -332,10 +407,13 @@ def filter_elements(
         max_box_size: Maximum box dimension in pixels
 
     Returns:
-        Filtered list of elements
+        Filtered list of elements with updated parent_index and children_indices
     """
     if not elements:
         return []
+
+    # Keep reference to original elements for hierarchy remapping
+    original_elements = elements
 
     filtered = []
 
@@ -387,6 +465,10 @@ def filter_elements(
 
     # Remove parent containers when child has same type
     filtered = _remove_parent_containers(filtered, containment_threshold)
+
+    # Remap hierarchy after all filtering is done
+    # This ensures children of removed parents point to their nearest surviving ancestor
+    filtered = remap_hierarchy_after_filtering(original_elements, filtered)
 
     return filtered
 

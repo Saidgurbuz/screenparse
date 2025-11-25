@@ -13,10 +13,86 @@ from .utils import (
     save_json,
     safe_stem_from_url,
     rect_to_int,
+    build_element_tree,
+    elements_to_screentag,
 )
 from .labels import guess_type
 from tqdm import tqdm
-from .collector import navigate_resilient  # Reuse navigation logic
+
+
+def is_blank_image(img_path: str, white_threshold: float = 0.99) -> bool:
+    """
+    Check if an image is blank (mostly white/single color).
+    
+    Args:
+        img_path: Path to the image file
+        white_threshold: Fraction of pixels that must be white/near-white to consider blank
+        
+    Returns:
+        True if image is blank, False otherwise
+    """
+    try:
+        from PIL import Image
+        import numpy as np
+        
+        img = Image.open(img_path).convert('RGB')
+        pixels = np.array(img)
+        
+        # Check if image is mostly white (RGB values > 250)
+        white_pixels = np.all(pixels > 250, axis=2)
+        white_ratio = np.mean(white_pixels)
+        
+        if white_ratio > white_threshold:
+            return True
+        
+        # Also check for single-color images (very low variance)
+        # This catches solid gray, black, or other solid color pages
+        pixel_std = np.std(pixels)
+        if pixel_std < 5:  # Very low variance = likely single solid color
+            return True
+            
+        return False
+    except Exception:
+        # If we can't read the image, consider it invalid
+        return True
+
+
+def navigate_resilient(page, url, nav_timeout_ms):
+    """Navigate to URL with resilient retry logic.
+    
+    Tries progressively stricter wait conditions, with retries and backoffs.
+    Handles various edge cases like client-side redirects and interstitials.
+    """
+    # Try the least strict first; escalate only if needed
+    waits = ["commit", "domcontentloaded", "load"]
+    last_exc = None
+    for attempt in range(3):
+        for w in waits:
+            try:
+                resp = page.goto(url, wait_until=w, timeout=nav_timeout_ms)
+                # Small settle to let async content paint without hanging forever.
+                page.wait_for_timeout(500)
+                return resp
+            except Exception as e:
+                last_exc = e
+        # Backoff & retry a reload of final URL (handles client-side redirects)
+        try:
+            page.reload(wait_until="domcontentloaded", timeout=nav_timeout_ms)
+            page.wait_for_timeout(500)
+            return None
+        except Exception as e:
+            last_exc = e
+            page.wait_for_timeout(750 * (attempt + 1))
+    # Give one last shot via JS redirect in case of weird interstitial
+    try:
+        page.evaluate(f"location.href = {repr(url)}")
+        page.wait_for_load_state("domcontentloaded", timeout=nav_timeout_ms)
+        page.wait_for_timeout(500)
+        return None
+    except Exception:
+        if last_exc:
+            raise last_exc
+        raise
 
 
 class BrowserWorker:
@@ -154,25 +230,115 @@ class BrowserWorker:
                 except Exception:
                     off = {"x": 0, "y": 0}
 
-                # Collect elements
+                skip_reason = None
+                # Collect elements with hierarchy information
                 try:
                     els = fr.evaluate(
                         """(viewportHeight) => {
                         function isVisible(el){
                           if (!el || el.nodeType !== Node.ELEMENT_NODE) return false;
+                          
+                          // Check HTML hidden attribute
+                          if (el.hidden) return false;
+                          
+                          // Check aria-hidden (but not on the element itself if it has visible children)
+                          if (el.getAttribute('aria-hidden') === 'true') return false;
+                          
                           const s = getComputedStyle(el);
-                          if (s.display==='none' || s.visibility==='hidden' || parseFloat(s.opacity)===0) return false;
+                          
+                          // Basic visibility checks
+                          if (s.display === 'none') return false;
+                          if (s.visibility === 'hidden' || s.visibility === 'collapse') return false;
+                          if (parseFloat(s.opacity) === 0) return false;
+                          
+                          // Check for off-screen positioning (common dropdown hiding technique)
+                          const left = parseFloat(s.left);
+                          const top = parseFloat(s.top);
+                          if (!isNaN(left) && left < -1000) return false;
+                          if (!isNaN(top) && top < -1000) return false;
+                          
+                          // Check for clip/clip-path hiding
+                          if (s.clip === 'rect(0px, 0px, 0px, 0px)' || 
+                              s.clip === 'rect(0, 0, 0, 0)' ||
+                              s.clipPath === 'inset(100%)' ||
+                              s.clipPath === 'polygon(0 0, 0 0, 0 0, 0 0)') return false;
+                          
+                          // Check for zero-size with overflow hidden (collapsed elements)
                           const r = el.getBoundingClientRect();
-                          return r.width>0 && r.height>0 && r.top < viewportHeight && r.bottom > 0 && r.left < window.innerWidth && r.right > 0;
+                          if (r.width <= 0 || r.height <= 0) return false;
+                          
+                          // Check if element is within viewport bounds
+                          if (r.right < 0 || r.bottom < 0) return false;
+                          if (r.left > window.innerWidth || r.top > viewportHeight) return false;
+                          
+                          // Check if element is actually clipped by an ancestor with overflow:hidden
+                          let parent = el.parentElement;
+                          while (parent && parent !== document.body) {
+                            const ps = getComputedStyle(parent);
+                            if (ps.overflow === 'hidden' || ps.overflowX === 'hidden' || ps.overflowY === 'hidden') {
+                              const pr = parent.getBoundingClientRect();
+                              // If element is completely outside parent's visible area
+                              if (r.right <= pr.left || r.left >= pr.right ||
+                                  r.bottom <= pr.top || r.top >= pr.bottom) {
+                                return false;
+                              }
+                            }
+                            // Also check parent visibility
+                            if (ps.display === 'none' || ps.visibility === 'hidden' || parseFloat(ps.opacity) === 0) {
+                              return false;
+                            }
+                            parent = parent.parentElement;
+                          }
+                          
+                          return true;
                         }
-                        const out=[];
+                        
+                        // First pass: collect all visible elements and assign indices
                         const nodes = Array.from(document.querySelectorAll('*'));
-                        for (const n of nodes){
-                          if(!isVisible(n)) continue;
+                        const visibleNodes = [];
+                        const nodeToIndex = new Map();
+                        
+                        for (const n of nodes) {
+                          if (isVisible(n)) {
+                            nodeToIndex.set(n, visibleNodes.length);
+                            visibleNodes.push(n);
+                          }
+                        }
+                        
+                        // Second pass: build output with parent references
+                        const out = [];
+                        for (let i = 0; i < visibleNodes.length; i++) {
+                          const n = visibleNodes[i];
                           const r = n.getBoundingClientRect();
-                          const attrs={}; for (const a of n.attributes) attrs[a.name]=a.value;
+                          const attrs = {};
+                          for (const a of n.attributes) attrs[a.name] = a.value;
                           const role = n.getAttribute('role');
                           const text = (n.innerText || '').replace(/\\s+/g,' ').trim();
+                          
+                          // Find parent index - walk up until we find a visible parent
+                          let parentIndex = null;
+                          let parent = n.parentElement;
+                          while (parent) {
+                            if (nodeToIndex.has(parent)) {
+                              parentIndex = nodeToIndex.get(parent);
+                              break;
+                            }
+                            parent = parent.parentElement;
+                          }
+                          
+                          // Collect direct children indices (only visible ones)
+                          const childrenIndices = [];
+                          for (const child of n.children) {
+                            if (nodeToIndex.has(child)) {
+                              childrenIndices.push(nodeToIndex.get(child));
+                            }
+                          }
+                          
+                          // Compute depth in DOM tree
+                          let depth = 0;
+                          let p = n.parentElement;
+                          while (p) { depth++; p = p.parentElement; }
+                          
                           out.push({
                             tag: n.tagName.toLowerCase(),
                             role: role || null,
@@ -182,13 +348,21 @@ class BrowserWorker:
                             rect: {x:r.x, y:r.y, w:r.width, h:r.height},
                             z: Number(getComputedStyle(n).zIndex) || 0,
                             aria_hidden: n.getAttribute('aria-hidden') || null,
-                            inner_text: text
+                            inner_text: text,
+                            // Hierarchy information
+                            _dom_index: i,
+                            _parent_dom_index: parentIndex,
+                            _children_dom_indices: childrenIndices,
+                            _depth: depth
                           });
                         }
                         return out;
                     }""",
                         viewport_height,
                     )
+                    # Calculate global index offset for multi-frame support
+                    global_offset = len(all_elements)
+                    
                     for e in els:
                         e["frame_index"] = fr_idx
                         e["type"] = guess_type(
@@ -199,8 +373,20 @@ class BrowserWorker:
                         e["rect"]["x"] = int(round(e["rect"]["x"])) + off["x"]
                         e["rect"]["y"] = int(round(e["rect"]["y"])) + off["y"]
                         e["rect"] = rect_to_int(e["rect"])
+                        
+                        # Adjust hierarchy indices for global offset (multi-frame support)
+                        if global_offset > 0:
+                            e["_dom_index"] = e["_dom_index"] + global_offset
+                            if e["_parent_dom_index"] is not None:
+                                e["_parent_dom_index"] = e["_parent_dom_index"] + global_offset
+                            e["_children_dom_indices"] = [
+                                idx + global_offset for idx in e["_children_dom_indices"]
+                            ]
+                    
                     all_elements.extend(els)
-                except Exception:
+                except Exception as e:
+                    # put the exception in the skip reason for debugging
+                    skip_reason = str(e)
                     pass
 
                 # Collect text spans
@@ -242,7 +428,8 @@ class BrowserWorker:
                         t["rect"]["y"] = int(round(t["rect"]["y"])) + off["y"]
                         t["rect"] = rect_to_int(t["rect"])
                     all_texts.extend(tboxes)
-                except Exception:
+                except Exception as e:
+                    skip_reason = str(e)
                     pass
 
             # Filter elements
@@ -280,6 +467,34 @@ class BrowserWorker:
                 else:
                     page.screenshot(path=img_path)
                 scale_used = "device"
+
+            # ============================================================
+            # VALIDATION: Skip samples with empty elements or blank images
+            # ============================================================
+            
+            # Check 1: Empty elements list
+            if not all_elements or len(all_elements) == 0:
+                skip_reason = skip_reason + "empty_elements" if skip_reason else "empty_elements"
+            
+            # Check 2: Blank/white screenshot
+            elif is_blank_image(img_path):
+                skip_reason = skip_reason + "blank_image" if skip_reason else "blank_image"
+            
+            if skip_reason:
+                # Clean up the screenshot file we just created
+                try:
+                    os.remove(img_path)
+                except OSError:
+                    pass
+                # Also clean up unfiltered elements if saved
+                unfiltered_path = f"{base}.elements.unfiltered.json"
+                if os.path.exists(unfiltered_path):
+                    try:
+                        os.remove(unfiltered_path)
+                    except OSError:
+                        pass
+                # Return None to indicate skipped sample
+                return {"skipped": True, "reason": skip_reason, "url": url_c}
 
             # Metadata
             meta = {
@@ -359,6 +574,17 @@ class BrowserWorker:
             if ocr_results:
                 record["ocr_path"] = f"{base}.ocr.json"
                 save_json(record["ocr_path"], ocr_results)
+
+            # Build and save element tree structure
+            element_tree = build_element_tree(all_elements)
+            record["tree_path"] = f"{base}.tree.json"
+            save_json(record["tree_path"], element_tree)
+            
+            # Generate and save ScreenTag representation
+            screentag_repr = elements_to_screentag(all_elements, element_tree["roots"])
+            record["screentag_path"] = f"{base}.screentag.txt"
+            with open(record["screentag_path"], "w", encoding="utf-8") as f:
+                f.write(screentag_repr)
 
             # Triplets
             ocr_map = (
