@@ -47,7 +47,9 @@ def is_blank_image(img_path: str, white_threshold: float = 0.99) -> bool:
         
         # Also check for single-color images (very low variance)
         # This catches solid gray, black, or other solid color pages
-        pixel_std = np.std(pixels)
+        # Compute std per channel and take the max - if all pixels are identical,
+        # std will be 0 for all channels regardless of the RGB values
+        pixel_std = np.max([np.std(pixels[:, :, c]) for c in range(3)])
         if pixel_std < 5:  # Very low variance = likely single solid color
             return True
             
