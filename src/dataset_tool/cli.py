@@ -397,6 +397,233 @@ def main():
     )
     pd.set_defaults(func=cmd_dedupe)
 
+    # reconstruct-hierarchy — infer parent-child relationships from bounding boxes
+    ph = sub.add_parser(
+        "reconstruct-hierarchy",
+        help="Reconstruct parent-child hierarchy from bounding box geometry",
+    )
+    ph.add_argument(
+        "--raw-dir",
+        default="data/raw",
+        help="Directory containing *.elements.json files",
+    )
+    ph.add_argument(
+        "--min-containment",
+        type=float,
+        default=0.95,
+        help="Minimum fraction of element that must be contained in parent (default: 0.95)",
+    )
+    ph.add_argument(
+        "--no-semantic-hints",
+        action="store_true",
+        help="Disable using VLM labels to inform hierarchy decisions",
+    )
+    ph.add_argument(
+        "--force",
+        action="store_true",
+        help="Reconstruct even if hierarchy already exists",
+    )
+    ph.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count(),
+        help="Number of parallel workers (default: all CPUs)",
+    )
+
+    def _cmd_reconstruct_hierarchy(args):
+        from .hierarchy_reconstruct import (
+            reconstruct_hierarchy_for_directory,
+            print_stats,
+        )
+
+        stats = reconstruct_hierarchy_for_directory(
+            raw_dir=args.raw_dir,
+            min_containment=args.min_containment,
+            use_semantic_hints=not args.no_semantic_hints,
+            force=args.force,
+            workers=args.workers,
+        )
+        print_stats(stats)
+
+    ph.set_defaults(func=_cmd_reconstruct_hierarchy)
+
+    # compute-own-text — compute own_text field for all elements
+    pot = sub.add_parser(
+        "compute-own-text",
+        help="Compute own_text field for elements (removes duplicated text from children)",
+    )
+    pot.add_argument(
+        "--raw-dir",
+        default="data/raw",
+        help="Directory containing *.elements.json files",
+    )
+    pot.add_argument(
+        "--force",
+        action="store_true",
+        help="Recompute own_text even if it already exists",
+    )
+    pot.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count(),
+        help="Number of parallel workers (default: all CPUs)",
+    )
+
+    def _cmd_compute_own_text(args):
+        from .hierarchy_reconstruct import (
+            add_own_text_for_directory,
+            print_stats,
+        )
+
+        stats = add_own_text_for_directory(
+            raw_dir=args.raw_dir,
+            force=args.force,
+            workers=args.workers,
+        )
+        print_stats(stats)
+
+    pot.set_defaults(func=_cmd_compute_own_text)
+
+    # screentag-export — export ScreenTag representation from elements
+    pst = sub.add_parser(
+        "screentag-export",
+        help="Export ScreenTag representation from elements.json files",
+    )
+    pst.add_argument(
+        "--raw-dir",
+        default="data/raw",
+        help="Directory containing *.elements.json and *.meta.json files",
+    )
+    pst.add_argument(
+        "--force",
+        action="store_true",
+        help="Regenerate screentag even if it already exists",
+    )
+    pst.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count(),
+        help="Number of parallel workers (default: all CPUs)",
+    )
+
+    def _cmd_screentag_export(args):
+        from .hierarchy_reconstruct import (
+            export_screentag_for_directory,
+            print_screentag_stats,
+        )
+
+        stats = export_screentag_for_directory(
+            raw_dir=args.raw_dir,
+            force=args.force,
+            workers=args.workers,
+        )
+        print_screentag_stats(stats)
+
+    pst.set_defaults(func=_cmd_screentag_export)
+
+    # viz-screentag — visualize ScreenTag annotations on images
+    pvs = sub.add_parser(
+        "viz-screentag",
+        help="Visualize ScreenTag annotations on images",
+    )
+    pvs.add_argument(
+        "--raw-dir",
+        default="data/raw",
+        help="Directory containing *.png and *.screentag.txt files",
+    )
+    pvs.add_argument(
+        "--viz-dir",
+        default="data/viz_screentag",
+        help="Output directory for visualizations",
+    )
+    pvs.add_argument(
+        "--image",
+        help="Single image path (for single-file mode)",
+    )
+    pvs.add_argument(
+        "--screentag",
+        help="Single screentag path (for single-file mode)",
+    )
+    pvs.add_argument(
+        "--output",
+        help="Output path (for single-file mode)",
+    )
+    pvs.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of parallel workers for batch mode",
+    )
+    pvs.add_argument(
+        "--no-labels",
+        action="store_true",
+        help="Don't draw element labels",
+    )
+    pvs.add_argument(
+        "--no-text",
+        action="store_true",
+        help="Don't show text content in labels",
+    )
+    pvs.add_argument(
+        "--fill-opacity",
+        type=int,
+        default=15,
+        help="Box fill opacity (0-255, default 15 for transparency)",
+    )
+    pvs.add_argument(
+        "--outline-opacity",
+        type=int,
+        default=200,
+        help="Outline opacity (0-255, default 200 for visibility)",
+    )
+    pvs.add_argument(
+        "--line-width",
+        type=int,
+        default=2,
+        help="Outline line width (default 2)",
+    )
+
+    def _cmd_viz_screentag(args):
+        from .visualize_screentag import (
+            visualize_screentag,
+            visualize_screentag_directory,
+            print_viz_stats,
+            ScreenTagVizOptions,
+        )
+        
+        opts = ScreenTagVizOptions(
+            draw_labels=not args.no_labels,
+            draw_text=not args.no_text,
+            fill_opacity=args.fill_opacity,
+            outline_opacity=args.outline_opacity,
+            line_width=args.line_width,
+        )
+        
+        if args.image and args.screentag:
+            # Single file mode
+            output = args.output or args.image.replace(".png", ".screentag_viz.jpg")
+            success = visualize_screentag(
+                image_path=args.image,
+                screentag_path=args.screentag,
+                output_path=output,
+                opts=opts,
+            )
+            if success:
+                print(f"Saved visualization to: {output}")
+            else:
+                print("Failed to create visualization")
+        else:
+            # Batch mode
+            stats = visualize_screentag_directory(
+                raw_dir=args.raw_dir,
+                viz_dir=args.viz_dir,
+                workers=args.workers,
+                opts=opts,
+            )
+            print_viz_stats(stats)
+
+    pvs.set_defaults(func=_cmd_viz_screentag)
+
     # vlm-label — relabel elements with a VLM
     pl = sub.add_parser("vlm-label", help="Relabel UI elements with a VLM (Qwen3-VL via vLLM)")
     pl.add_argument("--raw-dir", default="data/raw", help="Directory with *.png/*.elements.json/*.meta.json")

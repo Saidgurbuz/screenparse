@@ -2,6 +2,7 @@
 
 from typing import List, Dict, Any, Set, Tuple
 import numpy as np
+from .utils import get_element_class
 
 
 def remap_hierarchy_after_filtering(
@@ -146,36 +147,79 @@ def compute_viewport_overlap(rect: Dict[str, int], vp_w: int, vp_h: int) -> floa
 
 
 # Define protected element types that should NEVER be filtered aggressively
+# Based on the 55 canonical classes from vlm_refine.py
 PROTECTED_TYPES = {
-    # Interactive elements - MUST keep
+    # Interactive controls
     "button",
-    "input",
-    "select",
-    "textarea",
-    "checkbox",
-    "radio",
-    "switch",
-    "link",
-    "tab",
+    "utility button",
     "slider",
-    # Important content
+    "picker",
+    "switch",
+    "toggles",
+    "steppers",
+    "checkbox",
+    "radiobox",
+    "select",
+    "text input",
+    "search field",
+    "search bar",
+    "date-time picker",
+    "rating indicator",
+    "input",
+    "textarea",
+    "radio",
+    # Navigation elements
+    "navigation bar",
+    "tab bar",
+    "tab",
+    "side bar",
+    "breadcrumb",
+    "bottom navigation",
+    "page control",
+    "pagination",
+    "link",
+    "menu",
+    "contextmenu",
+    "dockmenu",
+    "editmenu",
+    "popup menu",
+    "toolbar",
+    # Content elements
     "image",
     "video",
     "audio",
-    "icon",
-    "svg",
-    "title",
-    "form",
-    # Structured data
+    "chart",
     "table",
     "list",
+    "list item",
     "list_item",
-    # Important UI components
+    "avatar",
+    "logo",
+    "code snippet",
+    "carousel",
+    "calendar",
+    "text",
+    "heading",
+    "title",
+    # Feedback/notification elements
+    "tooltip",
+    "alert",
+    "notification",
+    "badge",
+    "progress bar",
+    # Icons
+    "app icon",
+    "file icon",
+    "icon",
+    "svg",
+    # UI components
     "card",
     "modal",
-    "tooltip",
-    "badge",
     "chip",
+    "form",
+    "scroll",
+    "status bar",
+    "window",
 }
 
 
@@ -195,6 +239,8 @@ def is_protected(element: Dict[str, Any]) -> bool:
     """
     Check if element should be protected from filtering.
     Protected elements are important UI components that should not be removed.
+    
+    Based on the 55 canonical classes from vlm_refine.py.
     """
     # Safely get values with None handling - use (value or "") pattern
     elem_type = (element.get("type") or "").lower()
@@ -203,18 +249,70 @@ def is_protected(element: Dict[str, Any]) -> bool:
     classes = (element.get("classes") or "").lower()
     attrs = element.get("attrs") or {}
 
-    # Protected element types
+    # Protected element types - based on canonical classes from vlm_refine.py
+    # These are interactive elements, important content, and UI components
     PROTECTED_TYPES = {
+        # Interactive controls
         "button",
-        "input",
+        "utility button",
+        "slider",
+        "picker",
+        "switch",
+        "toggles",
+        "steppers",
         "checkbox",
+        "radiobox",
+        "select",
+        "text input",
+        "search field",
+        "search bar",
+        "date-time picker",
+        "rating indicator",
+        # Navigation elements
+        "navigation bar",
+        "tab bar",
+        "tab",
+        "side bar",
+        "breadcrumb",
+        "bottom navigation",
+        "page control",
+        "pagination",
+        "link",
+        "menu",
+        "contextmenu",
+        "dockmenu",
+        "editmenu",
+        "popup menu",
+        "toolbar",
+        # Content elements
+        "image",
+        "video",
+        "chart",
+        "table",
+        "list",
+        "list item",
+        "avatar",
+        "logo",
+        "code snippet",
+        "carousel",
+        "calendar",
+        "text",
+        "heading",
+        # Feedback/notification elements
+        "tooltip",
+        "alert",
+        "notification",
+        "badge",
+        "progress bar",
+        # Icons
+        "app icon",
+        "file icon",
+        # Legacy/backward compatibility
+        "input",
         "dropdown",
         "search",
-        "link",
         "navigation",
-        "menu",
         "form",
-        "image",
     }
 
     # Protected roles
@@ -239,7 +337,7 @@ def is_protected(element: Dict[str, Any]) -> bool:
     if role in PROTECTED_ROLES:
         return True
 
-    # Check interactive tags
+    # Check interactive tags - HTML elements that are typically important
     if tag in (
         "button",
         "input",
@@ -464,7 +562,8 @@ def filter_elements(
         filtered = _remove_duplicates_iou(filtered, iou_threshold)
 
     # Remove parent containers when child has same type
-    filtered = _remove_parent_containers(filtered, containment_threshold)
+    # consider to keep this filtering or not later on
+    # filtered = _remove_parent_containers(filtered, containment_threshold)
 
     # Remap hierarchy after all filtering is done
     # This ensures children of removed parents point to their nearest surviving ancestor
@@ -502,7 +601,11 @@ def _remove_duplicates_iou(
                 else:
                     is_duplicate = True
                     break
-
+            if get_element_class(el_i).lower() == get_element_class(el_j).lower():
+                # if the elements are of the same type, we want to be more aggressive
+                if iou > iou_threshold * 0.65:
+                    is_duplicate = True
+                    break
         if not is_duplicate:
             keep.append(el_i)
 
@@ -520,7 +623,7 @@ def _remove_parent_containers(
 
     for i, el_i in enumerate(elements):
         is_redundant = False
-        type_i = (el_i.get("type") or "").lower()
+        type_i = get_element_class(el_i).lower()
         protected_i = is_protected(el_i)
 
         # Check if this element contains other elements of the same type
@@ -528,7 +631,7 @@ def _remove_parent_containers(
             if i == j:
                 continue
 
-            type_j = (el_j.get("type") or "").lower()
+            type_j = get_element_class(el_j).lower()
 
             # Only consider same types
             if type_i != type_j:

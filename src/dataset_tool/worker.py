@@ -583,7 +583,10 @@ class BrowserWorker:
             save_json(record["tree_path"], element_tree)
             
             # Generate and save ScreenTag representation
-            screentag_repr = elements_to_screentag(all_elements, element_tree["roots"])
+            screentag_repr = elements_to_screentag(
+                elements=all_elements,
+                viewport=meta["viewport"],
+            )
             record["screentag_path"] = f"{base}.screentag.txt"
             with open(record["screentag_path"], "w", encoding="utf-8") as f:
                 f.write(screentag_repr)

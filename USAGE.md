@@ -122,6 +122,29 @@ wsd viz --opacity 120 --line-width 3 --no-labels
 wsd dedupe --image-dir data/raw --csv data/dupes/dupe_groups.csv
 ```
 
+#### Reconstruct Element Hierarchy
+
+For older datasets that don't have parent-child hierarchy information, you can reconstruct it from bounding box geometry:
+
+```bash
+# Reconstruct hierarchy for all elements.json files
+wsd reconstruct-hierarchy --raw-dir data/raw
+
+# With custom containment threshold (default: 0.95)
+wsd reconstruct-hierarchy --raw-dir data/raw --min-containment 0.90
+
+# Force reconstruction even if hierarchy exists
+wsd reconstruct-hierarchy --raw-dir data/raw --force
+
+# Disable semantic hints from VLM labels
+wsd reconstruct-hierarchy --raw-dir data/raw --no-semantic-hints
+
+# Parallel processing
+wsd reconstruct-hierarchy --raw-dir data/raw --workers 8
+```
+
+This adds `parent_index`, `children_indices`, `_dom_index`, `_parent_dom_index`, `_children_dom_indices`, and `_depth` fields to each element in the elements.json files.
+
 #### Export to YOLO
 
 ```bash
@@ -535,6 +558,7 @@ wsd pipeline [--urls FILE] [--out DIR] [--yolo-dir DIR] [--ocr] [--headed]
 wsd crawl [--urls FILE] [--out DIR] [--ocr] [--headed] [--workers INT]
 wsd viz [--out DIR] [--viz DIR] [--ocr-overlay] [--opacity N] [--line-width N]
 wsd dedupe [--image-dir DIR] [--threshold N] [--csv FILE]
+wsd reconstruct-hierarchy [--raw-dir DIR] [--min-containment F] [--force] [--workers N]
 wsd yolo [--raw-dir DIR] [--yolo-dir DIR] [--train-ratio F] [--val-ratio F]
 ```
 
