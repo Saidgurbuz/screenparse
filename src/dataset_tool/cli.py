@@ -654,6 +654,38 @@ def main():
         )
     pl.set_defaults(func=_cmd_vlm_label)
 
+    # vlm-score — score annotation quality with a VLM
+    ps = sub.add_parser("vlm-score", help="Score annotation quality with a VLM (Qwen3-VL via vLLM)")
+    ps.add_argument("--viz-dir", default="data/viz_screentag", help="Directory with visualization images (boxes/labels overlaid)")
+    ps.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct", help="vLLM model id")
+    ps.add_argument("--batch-size", type=int, default=256, help="VLM micro-batch size")
+    ps.add_argument("--tp", dest="tensor_parallel_size", type=int, default=1, help="Tensor-parallel size")
+    ps.add_argument("--limit", type=int, help="Limit number of images (for smoke testing)")
+    ps.add_argument("--threshold", type=float, default=50.0, help="Quality threshold; images below this are filtered (0-100)")
+    ps.add_argument("--output", default="data/filtered_low_quality.txt", help="Output file for filtered sample paths")
+    ps.add_argument("--scores-json", help="If set, write all scores to this JSON file")
+    ps.add_argument("--images-per-pass", type=int, default=512, help="Number of images per outer pass (memory tuning)")
+    ps.add_argument("--shard-index", type=int, default=0, help="Shard index (0-based)")
+    ps.add_argument("--num-shards", type=int, default=1, help="Total number of shards")
+    ps.add_argument("--viz-pattern", default="*.jpg", help="Glob pattern for visualization files")
+    def _cmd_vlm_score(args):
+        from .vlm_quality_score import score_visualizations
+        score_visualizations(
+            viz_dir=args.viz_dir,
+            model=args.model,
+            batch_size=args.batch_size,
+            tensor_parallel_size=args.tensor_parallel_size,
+            limit=args.limit,
+            threshold=args.threshold,
+            output_file=args.output,
+            scores_json=args.scores_json,
+            images_per_pass=args.images_per_pass,
+            shard_index=args.shard_index,
+            num_shards=args.num_shards,
+            viz_pattern=args.viz_pattern,
+        )
+    ps.set_defaults(func=_cmd_vlm_score)
+
     # yolo export
     py = sub.add_parser("yolo", help="Export dataset to YOLO format")
     py.add_argument("--raw-dir", default="data/raw", help="Raw data directory")
