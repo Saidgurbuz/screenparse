@@ -6,6 +6,7 @@ from .metrics.base import Metric
 from .metrics.page_iou import PageIoU
 from .metrics.label_page_iou import LabelAwarePageIoU
 from .metrics.map import MeanAveragePrecision
+from .metrics.recall import Recall
 from .models.base import OfflinePredictionRunner
 from .models.gemini import GeminiRunner
 from .models.paddleocrvl import PaddleOCRVLRunner
@@ -24,6 +25,7 @@ __all__ = [
     "PageIoU",
     "LabelAwarePageIoU",
     "MeanAveragePrecision",
+    "Recall",
     "Evaluator",
     "build_raw_dataset",
     "build_yolo_dataset",

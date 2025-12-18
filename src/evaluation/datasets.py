@@ -249,7 +249,7 @@ def build_groundcua_dataset(
         if per_platform:
             import random
 
-            random.shuffle(imgs)
+            random.Random(42).shuffle(imgs)
             imgs = imgs[:per_platform]
 
         for img_path in imgs:

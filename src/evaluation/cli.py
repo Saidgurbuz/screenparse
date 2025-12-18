@@ -9,7 +9,7 @@
   --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
   --omniparser-weights /proj/docling-vision/users/said/webshot-dataset/runs/omniparser/model.pt \
   --gemini gemini-2.5-flash-lite \
-  --metrics page_iou,label_page_iou,map \
+  --metrics page_iou,label_page_iou,map,recall \
   --batch-size 4 \
   --save-preds evaluation_results_100/preds \
   --output evaluation_results_100/report.json"""
@@ -27,6 +27,7 @@ from .datasets import build_raw_dataset, build_yolo_dataset, build_groundcua_dat
 from .label_mapping import LabelMapper
 from .metrics.label_page_iou import LabelAwarePageIoU
 from .metrics.map import MeanAveragePrecision
+from .metrics.recall import Recall
 from .metrics.page_iou import PageIoU
 from .models.base import OfflinePredictionRunner
 from .models.gemini import GeminiRunner
@@ -45,6 +46,8 @@ def _metric_specs(metric_names: List[str], args) -> List[Tuple[str, Dict]]:
             specs.append(("label_page_iou", {"max_resolution": args.pageiou_resolution}))
         elif name in ("map", "map_50", "map50"):
             specs.append(("map", {"iou_threshold": args.map_iou_thr}))
+        elif name.startswith("recall"):
+            specs.append(("recall", {"iou_threshold": args.recall_iou_thr}))
         else:
             print(f"Warning: unknown metric '{name}' - skipping.")
     return specs
@@ -59,6 +62,8 @@ def _build_metrics(specs: List[Tuple[str, Dict]]):
             metrics.append(LabelAwarePageIoU(**kwargs))
         elif name == "map":
             metrics.append(MeanAveragePrecision(**kwargs))
+        elif name == "recall":
+            metrics.append(Recall(**kwargs))
     return metrics
 
 
@@ -186,10 +191,11 @@ def main(argv: List[str] | None = None):
 
     parser.add_argument("--pageiou-resolution", type=int, default=0, help="Downscale long side before PageIoU.")
     parser.add_argument("--map-iou-thr", type=float, default=0.5, help="IoU threshold for mAP.")
+    parser.add_argument("--recall-iou-thr", type=float, default=0.5, help="IoU threshold for recall.")
     parser.add_argument(
         "--metrics",
-        default="page_iou,label_page_iou,map",
-        help="Comma-separated metrics: page_iou,label_page_iou,map",
+        default="page_iou,label_page_iou,map,recall",
+        help="Comma-separated metrics: page_iou,label_page_iou,map,recall",
     )
     parser.add_argument(
         "--class-schema",
