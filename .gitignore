@@ -62,3 +62,4 @@ urls/
 *.csv
 *.pt
 *.ipynb
+bash_scripts

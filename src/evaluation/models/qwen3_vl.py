@@ -11,93 +11,24 @@ from PIL import Image
 from transformers import AutoProcessor
 
 from ..datasets import element_from_obj
+from ..label_mapping import get_class_list
 from ..types import EvaluationSample, UIElement
 from .base import ModelRunner
 
 
-_CANON_CLASSES = [
-    "Table",
-    "Column/Browser",
-    "Button",
-    "Utility Button",
-    "App Icon",
-    "Navigation Bar",
-    "Status Bar",
-    "Search Field",
-    "Toolbar",
-    "Tooltip",
-    "Video",
-    "Tab Bar",
-    "Side Bar",
-    "Slider",
-    "Picker",
-    "ContextMenu",
-    "DockMenu",
-    "EditMenu",
-    "Image",
-    "Scroll",
-    "Switch",
-    "File Icon",
-    "Chart",
-    "Window",
-    "Screen",
-    "List",
-    "List Item",
-    "PopUp Menu",
-    "Steppers",
-    "Toggles",
-    "Text Input",
-    "Rating Indicator",
-    "Checkbox",
-    "Radiobox",
-    "Select",
-    "Avatar",
-    "Badge",
-    "Alert",
-    "Progress bar",
-    "Bottom navigation",
-    "Breadcrumb",
-    "Page control",
-    "Link",
-    "Menu",
-    "Pagination",
-    "Tab",
-    "Search Bar",
-    "Date-Time picker",
-    "Calendar",
-    "Text",
-    "Heading",
-    "Code snippet",
-    "Carousel",
-    "Notification",
-    "Logo",
-]
+
+def _classes_block(schema_classes: List[str]) -> str:
+    return "Allowed labels:\n- " + "\n- ".join(schema_classes)
 
 
-def _dedupe(seq: Sequence[str]) -> List[str]:
-    seen = set()
-    out = []
-    for s in seq:
-        if s not in seen:
-            seen.add(s)
-            out.append(s)
-    return out
-
-
-CANON_CLASSES = _dedupe(_CANON_CLASSES)
-
-
-def _classes_block() -> str:
-    return "Allowed labels:\n- " + "\n- ".join(CANON_CLASSES)
-
-
-def _default_prompt() -> str:
+def _default_prompt(class_schema: str) -> str:
+    classes = get_class_list(class_schema)
     return (
         "You are a UI parser. Given a screenshot image, extract all visible UI elements.\n"
         "Return JSON list with objects: "
         '{"bbox_ltrb":[l,t,r,b], "label": "<type>", "text": "<visible text>"}.\n'
         "The bbox_ltrb should be normalized to 0-1000. (l,t,r,b). Include all elements.\n"
-        f"{_classes_block()}"
+        f"{_classes_block(classes)}"
     )
 
 
@@ -137,6 +68,7 @@ class Qwen3VLRunner(ModelRunner):
         trust_remote_code: bool = True,
         gpu_memory_utilization: float = 0.9,
         tensor_parallel_size: int | None = None,
+        class_schema: str = "custom55",
     ):
         runner_name = name or Path(model_id).name
         super().__init__(runner_name)
@@ -159,7 +91,7 @@ class Qwen3VLRunner(ModelRunner):
         except Exception as exc:
             raise ImportError("vllm is required for Qwen3VLRunner") from exc
 
-        self.prompt = prompt or _default_prompt()
+        self.prompt = prompt or _default_prompt(class_schema)
         self.parser = parser or _default_parser
         self.sampling_params = SamplingParams(
             temperature=temperature,

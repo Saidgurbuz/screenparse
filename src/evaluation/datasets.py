@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple, Dict
 
 from PIL import Image
 from .types import BoundingBox, EvaluationSample, UIElement
+from .label_mapping import LabelMapper
 
 
 def _read_json(path: Path):
@@ -156,6 +157,17 @@ def _read_image_size(image_path: Path) -> Optional[Tuple[int, int]]:
             return im.size  # (width, height)
     except Exception:
         return None
+    
+def _load_annotations(ann_path: Path) -> List[Dict]:
+    payload = _read_json(ann_path)
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        # Some files might wrap the list
+        for key in ("items", "data", "annotations"):
+            if key in payload and isinstance(payload[key], list):
+                return payload[key]
+    return []
 
 
 def _iter_images(image_dir: Path, exts: Sequence[str], max_count: Optional[int]) -> Iterable[Path]:
@@ -173,6 +185,7 @@ def build_raw_dataset(
     include_raw: bool = False,
     image_exts: Sequence[str] = (".png", ".jpg", ".jpeg"),
     max_samples: Optional[int] = None,
+    label_mapper: Optional[LabelMapper] = None,
 ) -> List[EvaluationSample]:
     base = Path(image_dir)
     samples: List[EvaluationSample] = []
@@ -182,6 +195,8 @@ def build_raw_dataset(
         if not gt_file:
             continue
         gt_elements = load_elements_file(gt_file, include_raw=include_raw)
+        if label_mapper:
+            gt_elements = [label_mapper.map_element(e) for e in gt_elements]
         img_size = _read_image_size(image_path)
         samples.append(
             EvaluationSample(
@@ -193,6 +208,92 @@ def build_raw_dataset(
             )
         )
         if max_samples is not None and len(samples) >= max_samples:
+            break
+    return samples
+
+
+def build_groundcua_dataset(
+    root_dir: str,
+    include_raw: bool = False,
+    image_exts: Sequence[str] = (".png", ".jpg", ".jpeg"),
+    max_samples: Optional[int] = None,
+    label_mapper: Optional[LabelMapper] = None,
+) -> List[EvaluationSample]:
+    """
+    Build GroundCUA dataset with uniform sampling across platform subfolders.
+
+    Directory layout:
+      root_dir/images/<Platform>/<hash>.png
+      root_dir/data/<Platform>/<hash>.json
+    """
+    root = Path(root_dir)
+    img_root = root / "images"
+    data_root = root / "data"
+    platforms = [p for p in img_root.iterdir() if p.is_dir()]
+    if not platforms:
+        return []
+
+    per_platform = None
+    if max_samples:
+        per_platform = max(1, max_samples // max(len(platforms), 1))
+
+    samples: List[EvaluationSample] = []
+    for plat_dir in platforms:
+        ann_dir = data_root / plat_dir.name
+        if not ann_dir.exists():
+            continue
+
+        imgs = []
+        for ext in image_exts:
+            imgs.extend(sorted(plat_dir.glob(f"*{ext}")))
+        if per_platform:
+            import random
+
+            random.shuffle(imgs)
+            imgs = imgs[:per_platform]
+
+        for img_path in imgs:
+            ann_path = ann_dir / (img_path.stem + ".json")
+            if not ann_path.exists():
+                continue
+            ann_items = _load_annotations(ann_path)
+            elements: List[UIElement] = []
+            for obj in ann_items:
+                bbox = _extract_bbox({"bbox_ltrb": obj.get("bbox")}) if obj.get("bbox") else None
+                if not bbox:
+                    continue
+                label = obj.get("category") or obj.get("label") or None
+                text = obj.get("text") or ""
+                raw_payload = obj if include_raw else None
+                elements.append(
+                    UIElement(
+                        bbox=bbox,
+                        label=label,
+                        text=text,
+                        score=None,
+                        raw=raw_payload,
+                    )
+                )
+            if label_mapper:
+                elements = [label_mapper.map_element(e) for e in elements]
+            img_size = _read_image_size(img_path)
+            samples.append(
+                EvaluationSample(
+                    image_path=str(img_path),
+                    ground_truth=elements,
+                    image_size=img_size,
+                    metadata={
+                        "stem": img_path.stem,
+                        "platform": plat_dir.name,
+                        "ground_truth_file": str(ann_path),
+                        "format": "groundcua",
+                    },
+                    sample_id=img_path.stem,
+                )
+            )
+            if max_samples and len(samples) >= max_samples:
+                break
+        if max_samples and len(samples) >= max_samples:
             break
     return samples
 
@@ -251,6 +352,7 @@ def build_yolo_dataset(
     include_raw: bool = False,
     image_exts: Sequence[str] = (".png", ".jpg", ".jpeg"),
     max_samples: Optional[int] = None,
+    label_mapper: Optional[LabelMapper] = None,
 ) -> List[EvaluationSample]:
     image_root = Path(image_dir)
     label_root = Path(labels_dir) if labels_dir else image_root.parent / "labels" / image_root.name
@@ -267,6 +369,8 @@ def build_yolo_dataset(
         if img_size is None:
             continue
         gt_elements = _read_yolo_label_file(label_path, img_size, class_names)
+        if label_mapper:
+            gt_elements = [label_mapper.map_element(e) for e in gt_elements]
         samples.append(
             EvaluationSample(
                 image_path=str(image_path),

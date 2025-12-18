@@ -7,94 +7,24 @@ from pathlib import Path
 from typing import Callable, Iterable, List, Sequence
 
 from ..datasets import element_from_obj
+from ..label_mapping import get_class_list
 from ..types import EvaluationSample, UIElement
 from .base import ModelRunner
 
 os.environ["GEMINI_API_KEY"] = "AIzaSyDd6uD_bq5Pz3X8jMk5hL1UNafO1nnXp3o"
 
-_CANON_CLASSES = [
-    "Table",
-    "Column/Browser",
-    "Button",
-    "Utility Button",
-    "App Icon",
-    "Navigation Bar",
-    "Status Bar",
-    "Search Field",
-    "Toolbar",
-    "Tooltip",
-    "Video",
-    "Tab Bar",
-    "Side Bar",
-    "Slider",
-    "Picker",
-    "ContextMenu",
-    "DockMenu",
-    "EditMenu",
-    "Image",
-    "Scroll",
-    "Switch",
-    "File Icon",
-    "Chart",
-    "Window",
-    "Screen",
-    "List",
-    "List Item",
-    "PopUp Menu",
-    "Steppers",
-    "Toggles",
-    "Text Input",
-    "Rating Indicator",
-    "Checkbox",
-    "Radiobox",
-    "Select",
-    "Avatar",
-    "Badge",
-    "Alert",
-    "Progress bar",
-    "Bottom navigation",
-    "Breadcrumb",
-    "Page control",
-    "Link",
-    "Menu",
-    "Pagination",
-    "Tab",
-    "Search Bar",
-    "Date-Time picker",
-    "Calendar",
-    "Text",
-    "Heading",
-    "Code snippet",
-    "Carousel",
-    "Notification",
-    "Logo",
-]
+def _classes_block(classes: List[str]) -> str:
+    return "Allowed labels:\n- " + "\n- ".join(classes)
 
 
-def _dedupe(seq: Sequence[str]) -> List[str]:
-    seen = set()
-    out = []
-    for s in seq:
-        if s not in seen:
-            seen.add(s)
-            out.append(s)
-    return out
-
-
-CANON_CLASSES = _dedupe(_CANON_CLASSES)
-
-
-def _classes_block() -> str:
-    return "Allowed labels:\n- " + "\n- ".join(CANON_CLASSES)
-
-
-def _default_prompt() -> str:
+def _default_prompt(class_schema: str) -> str:
+    classes = get_class_list(class_schema)
     return (
         "You are a UI parser. Given a screenshot image, extract all visible UI elements.\n"
         "Return JSON list with objects: "
         '{"bbox_tlbr":[t,l,b,r], "label": "<type>", "text": "<visible text>"}.\n'
         "The bbox_tlbr should be normalized to 0-1000. (t,l,b,r). Include all elements.\n"
-        f"{_classes_block()}"
+        f"{_classes_block(classes)}"
     )
 
 
@@ -127,6 +57,7 @@ class GeminiRunner(ModelRunner):
         api_key: str | None = None,
         prompt: str | None = None,
         parser: Callable[[str], List[UIElement]] | None = None,
+        class_schema: str = "custom55",
     ):
         runner_name = name or Path(model_id).name
         super().__init__(runner_name)
@@ -140,7 +71,7 @@ class GeminiRunner(ModelRunner):
         if not key:
             raise ValueError("GeminiRunner requires an API key (env GEMINI_API_KEY/GOOGLE_API_KEY or api_key param).")
 
-        self.prompt = prompt or _default_prompt()
+        self.prompt = prompt or _default_prompt(class_schema)
         self.parser = parser or _default_parser
         self.client = genai.Client(api_key=key)
         self.types = types

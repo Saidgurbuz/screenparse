@@ -2,13 +2,13 @@
   --format yolo \
   --image-dir /proj/docling-vision/users/said/data/yolo_filtered/images/test \
   --labels-dir /proj/docling-vision/users/said/data/yolo_filtered/labels/test \
+  --groundcua-root /proj/docling-vision/users/said/GroundCUA/GroundCUA \
   --classes /proj/docling-vision/users/said/data/yolo_filtered/classes.txt \
   --max-samples 100 \
   --yolo-model /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
   --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
   --omniparser-weights /proj/docling-vision/users/said/webshot-dataset/runs/omniparser/model.pt \
   --gemini gemini-2.5-flash-lite \
-  --paddle-ocrvl \
   --metrics page_iou,label_page_iou,map \
   --batch-size 4 \
   --save-preds evaluation_results_100/preds \
@@ -23,7 +23,8 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from .datasets import build_raw_dataset, build_yolo_dataset
+from .datasets import build_raw_dataset, build_yolo_dataset, build_groundcua_dataset
+from .label_mapping import LabelMapper
 from .metrics.label_page_iou import LabelAwarePageIoU
 from .metrics.map import MeanAveragePrecision
 from .metrics.page_iou import PageIoU
@@ -76,10 +77,11 @@ def _build_runner_from_spec(spec: Tuple[str, Dict]):
     raise ValueError(f"Unknown model kind {kind}")
 
 
-def _eval_worker(dataset, metric_specs, model_spec, pred_dir, batch_size, queue):
+def _eval_worker(dataset, metric_specs, model_spec, pred_dir, batch_size, queue, class_schema):
     try:
         metrics = _build_metrics(metric_specs)
-        evaluator = Evaluator(metrics)
+        mapper = LabelMapper(class_schema)
+        evaluator = Evaluator(metrics, label_mapper=mapper)
         model = _build_runner_from_spec(model_spec)
         report = evaluator.evaluate_model(
             dataset,
@@ -100,8 +102,15 @@ def _parse_name_path(val: str) -> Tuple[str, str]:
     return Path(path).stem, path
 
 
-def _build_dataset(args):
+def _build_dataset(args, label_mapper):
     fmt = args.format
+    if args.groundcua_root:
+        return build_groundcua_dataset(
+            root_dir=args.groundcua_root,
+            max_samples=args.max_samples,
+            label_mapper=label_mapper,
+        )
+
     if fmt == "auto":
         fmt = "yolo" if args.labels_dir else "raw"
 
@@ -111,8 +120,9 @@ def _build_dataset(args):
             labels_dir=args.labels_dir,
             classes_path=args.classes,
             max_samples=args.max_samples,
+            label_mapper=label_mapper,
         )
-    return build_raw_dataset(image_dir=args.image_dir, max_samples=args.max_samples)
+    return build_raw_dataset(image_dir=args.image_dir, max_samples=args.max_samples, label_mapper=label_mapper)
 
 
 def main(argv: List[str] | None = None):
@@ -121,6 +131,7 @@ def main(argv: List[str] | None = None):
     parser.add_argument("--labels-dir", help="YOLO labels directory (only for --format yolo/auto).")
     parser.add_argument("--classes", help="Optional classes.txt for YOLO labels.")
     parser.add_argument("--format", choices=["auto", "raw", "yolo"], default="auto", help="Dataset format.")
+    parser.add_argument("--groundcua-root", help="GroundCUA root directory (contains data/ and images/).")
     parser.add_argument("--max-samples", type=int, help="Cap number of samples for quick runs.")
 
     parser.add_argument("--yolo-model", action="append", default=[], help="YOLO weights (name=path or just path).")
@@ -180,13 +191,21 @@ def main(argv: List[str] | None = None):
         default="page_iou,label_page_iou,map",
         help="Comma-separated metrics: page_iou,label_page_iou,map",
     )
+    parser.add_argument(
+        "--class-schema",
+        choices=["custom55", "groundcua"],
+        default="custom55",
+        help="Target class schema for labels.",
+    )
     parser.add_argument("--batch-size", type=int, help="Batch size for predict_batch.")
     parser.add_argument("--save-preds", help="Base directory to dump model predictions.")
     parser.add_argument("--output", help="Path to write JSON report.")
 
     args = parser.parse_args(argv)
 
-    dataset = _build_dataset(args)
+    mapper = LabelMapper(args.class_schema)
+
+    dataset = _build_dataset(args, label_mapper=mapper)
 
     if not dataset:
         raise SystemExit("No evaluation samples found for given paths.")
@@ -246,6 +265,7 @@ def main(argv: List[str] | None = None):
                     max_new_tokens=args.qwen_max_new_tokens,
                     temperature=args.qwen_temperature,
                     top_p=args.qwen_top_p,
+                    class_schema=args.class_schema,
                 ),
             )
         )
@@ -260,6 +280,7 @@ def main(argv: List[str] | None = None):
                     name=name,
                     api_key=args.gemini_api_key,
                     prompt=args.qwen_prompt,
+                    class_schema=args.class_schema,
                 ),
             )
         )
@@ -301,6 +322,7 @@ def main(argv: List[str] | None = None):
                 str(pred_dir) if pred_dir else None,
                 args.batch_size,
                 queue,
+                args.class_schema,
             ),
         )
         proc.start()

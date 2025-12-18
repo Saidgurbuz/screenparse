@@ -15,8 +15,9 @@ from .types import EvaluationSample, MetricResult, SampleResult, UIElement
 class Evaluator:
     """Runs metrics for a model over a dataset."""
 
-    def __init__(self, metrics: Sequence[Metric]):
+    def __init__(self, metrics: Sequence[Metric], label_mapper=None):
         self.metrics = list(metrics)
+        self.label_mapper = label_mapper
 
     def _write_predictions(self, out_dir: Path, sample: EvaluationSample, preds: Sequence[UIElement]):
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +62,8 @@ class Evaluator:
                 batch_predictions = [[] for _ in batch]
 
             for sample, preds, err in zip(batch, batch_predictions, batch_errors):
+                if self.label_mapper:
+                    preds = [self.label_mapper.map_element(p) for p in preds]
                 if err:
                     metric_results = {
                         m.name: MetricResult(m.name, None, details={"error": err})
