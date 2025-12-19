@@ -10,6 +10,7 @@ from .metrics.recall import Recall
 from .models.base import OfflinePredictionRunner
 from .models.gemini import GeminiRunner
 from .models.paddleocrvl import PaddleOCRVLRunner
+from .models.screenvlm import ScreenVLMRunner
 from .models.yolo import YoloModelRunner
 from .models.qwen3_vl import Qwen3VLRunner
 from .runner import Evaluator
@@ -33,6 +34,7 @@ __all__ = [
     "OfflinePredictionRunner",
     "GeminiRunner",
     "PaddleOCRVLRunner",
+    "ScreenVLMRunner",
     "YoloModelRunner",
     "Qwen3VLRunner",
     "LabelMapper",

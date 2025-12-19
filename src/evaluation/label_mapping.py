@@ -160,7 +160,7 @@ groundcua_representative_map: Dict[str, str] = {
     "Navigation": "Navigation Bar",
     "Visual Elements": "Image",
     "Menu": "Menu",
-    "Others": "Window",
+    "Others": "Link",
 }
 
 

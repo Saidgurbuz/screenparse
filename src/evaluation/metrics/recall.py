@@ -27,29 +27,39 @@ def _iou(box_a: BoundingBox, box_b: BoundingBox) -> float:
 
 class Recall(Metric):
     """
-    Label-aware recall at a single IoU threshold (default: 0.5).
+    Recall at a single IoU threshold.
+    - label_aware=True: match predictions to GT only within the same label.
+    - label_aware=False: ignore labels (best IoU match counts).
     """
 
-    def __init__(self, iou_threshold: float = 0.5, name: str | None = None):
-        super().__init__(name or f"recall_{int(iou_threshold * 100)}")
+    def __init__(self, iou_threshold: float = 0.5, label_aware: bool = True, name: str | None = None):
+        if name is None:
+            suffix = "label" if label_aware else "agnostic"
+            name = f"recall_{suffix}_{int(iou_threshold * 100)}"
+        super().__init__(name)
         self.iou_threshold = iou_threshold
+        self.label_aware = label_aware
 
     def compute(self, sample: EvaluationSample, predictions: Sequence[UIElement]) -> MetricResult:
         per_class_gt: Dict[str, List[Tuple[BoundingBox, bool]]] = defaultdict(list)
-        for gt in sample.ground_truth:
-            if not gt.label:
-                continue
-            per_class_gt[gt.label].append((gt.bbox, False))
+        if self.label_aware:
+            for gt in sample.ground_truth:
+                if not gt.label:
+                    continue
+                per_class_gt[gt.label].append((gt.bbox, False))
+        else:
+            for gt in sample.ground_truth:
+                per_class_gt["_all"].append((gt.bbox, False))
 
         per_class_tp: Dict[str, int] = defaultdict(int)
         total_gt = sum(len(v) for v in per_class_gt.values())
         if total_gt == 0:
-            return MetricResult(self.name, None, details={"gt": 0, "tp": 0, "iou_threshold": self.iou_threshold})
+            return MetricResult(self.name, None, details={"gt": 0, "tp": 0, "iou_threshold": self.iou_threshold, "label_aware": self.label_aware})
 
         preds_by_class: Dict[str, List[UIElement]] = defaultdict(list)
         for pred in predictions:
-            if pred.label:
-                preds_by_class[pred.label].append(pred)
+            key = pred.label if self.label_aware else "_all"
+            preds_by_class[key].append(pred)
 
         for label, preds in preds_by_class.items():
             gt_pool = per_class_gt.get(label, [])
@@ -82,6 +92,7 @@ class Recall(Metric):
                 "per_class_tp": dict(per_class_tp),
                 "per_class_gt": {k: len(v) for k, v in per_class_gt.items()},
                 "iou_threshold": self.iou_threshold,
+                "label_aware": self.label_aware,
             },
         )
 
@@ -92,12 +103,9 @@ class Recall(Metric):
             det = res.details or {}
             total_tp += int(det.get("tp", 0))
             total_gt += int(det.get("gt", 0))
-        if total_gt == 0:
-            value = None
-        else:
-            value = total_tp / total_gt
+        value = None if total_gt == 0 else total_tp / total_gt
         return MetricResult(
             name=self.name,
             value=value,
-            details={"tp": total_tp, "gt": total_gt, "iou_threshold": self.iou_threshold},
+            details={"tp": total_tp, "gt": total_gt, "iou_threshold": self.iou_threshold, "label_aware": self.label_aware},
         )

@@ -4,15 +4,16 @@
   --labels-dir /proj/docling-vision/users/said/data/yolo_filtered/labels/test \
   --groundcua-root /proj/docling-vision/users/said/GroundCUA/GroundCUA \
   --classes /proj/docling-vision/users/said/data/yolo_filtered/classes.txt \
-  --max-samples 100 \
+  --max-samples 870 \
   --yolo-model /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
   --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
   --omniparser-weights /proj/docling-vision/users/said/webshot-dataset/runs/omniparser/model.pt \
   --gemini gemini-2.5-flash-lite \
-  --metrics page_iou,label_page_iou,map,recall \
-  --batch-size 4 \
-  --save-preds evaluation_results_100/preds \
-  --output evaluation_results_100/report.json"""
+  --class-schema groundcua \
+  --metrics page_iou,label_page_iou,map,recall,recall_agnostic \
+  --batch-size 32 \
+  --save-preds evaluation_results_groundcua/preds \
+  --output evaluation_results_groundcua/report.json"""
 
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from .models.base import OfflinePredictionRunner
 from .models.gemini import GeminiRunner
 from .models.paddleocrvl import PaddleOCRVLRunner
 from .models.qwen3_vl import Qwen3VLRunner
+from .models.screenvlm import ScreenVLMRunner
 from .models.yolo import YoloModelRunner
 from .runner import Evaluator
 
@@ -46,8 +48,10 @@ def _metric_specs(metric_names: List[str], args) -> List[Tuple[str, Dict]]:
             specs.append(("label_page_iou", {"max_resolution": args.pageiou_resolution}))
         elif name in ("map", "map_50", "map50"):
             specs.append(("map", {"iou_threshold": args.map_iou_thr}))
-        elif name.startswith("recall"):
-            specs.append(("recall", {"iou_threshold": args.recall_iou_thr}))
+        elif name in ("recall", "recall_label", "recall_labelaware"):
+            specs.append(("recall", {"iou_threshold": args.recall_iou_thr, "label_aware": True}))
+        elif name in ("recall_agnostic", "recall_nolabel", "recall_any"):
+            specs.append(("recall", {"iou_threshold": args.recall_iou_thr, "label_aware": False}))
         else:
             print(f"Warning: unknown metric '{name}' - skipping.")
     return specs
@@ -79,6 +83,8 @@ def _build_runner_from_spec(spec: Tuple[str, Dict]):
         return GeminiRunner(**kwargs)
     if kind == "paddleocrvl":
         return PaddleOCRVLRunner(**kwargs)
+    if kind == "screenvlm":
+        return ScreenVLMRunner(**kwargs)
     raise ValueError(f"Unknown model kind {kind}")
 
 
@@ -160,6 +166,21 @@ def main(argv: List[str] | None = None):
     parser.add_argument("--qwen-temperature", type=float, default=0.0)
     parser.add_argument("--qwen-top-p", type=float, default=0.9)
     parser.add_argument(
+        "--screenvlm",
+        action="append",
+        default=[],
+        help="ScreenVLM checkpoint (name=path or just path).",
+    )
+    parser.add_argument("--screenvlm-processor", help="Optional processor path for ScreenVLM.")
+    parser.add_argument("--screenvlm-revision", help="Optional model revision for ScreenVLM.")
+    parser.add_argument("--screenvlm-max-new-tokens", type=int, default=6192)
+    parser.add_argument("--screenvlm-temperature", type=float, default=0.0)
+    parser.add_argument("--screenvlm-top-p", type=float, default=0.9)
+    parser.add_argument("--screenvlm-top-k", type=int, default=50)
+    parser.add_argument("--screenvlm-tp", type=int, default=1, help="Tensor parallel size for ScreenVLM.")
+    parser.add_argument("--screenvlm-gpu-mem", type=float, default=0.9)
+    parser.add_argument("--screenvlm-max-model-len", type=int, default=262144)
+    parser.add_argument(
         "--gemini",
         action="append",
         default=[],
@@ -194,8 +215,8 @@ def main(argv: List[str] | None = None):
     parser.add_argument("--recall-iou-thr", type=float, default=0.5, help="IoU threshold for recall.")
     parser.add_argument(
         "--metrics",
-        default="page_iou,label_page_iou,map,recall",
-        help="Comma-separated metrics: page_iou,label_page_iou,map,recall",
+        default="page_iou,label_page_iou,map,recall_label,recall_agnostic",
+        help="Comma-separated metrics: page_iou,label_page_iou,map,recall_label,recall_agnostic",
     )
     parser.add_argument(
         "--class-schema",
@@ -276,6 +297,27 @@ def main(argv: List[str] | None = None):
             )
         )
 
+    for entry in args.screenvlm:
+        name, checkpoint = _parse_name_path(entry)
+        model_specs.append(
+            (
+                "screenvlm",
+                dict(
+                    checkpoint=checkpoint,
+                    name=name,
+                    processor_path=args.screenvlm_processor,
+                    revision=args.screenvlm_revision,
+                    max_new_tokens=args.screenvlm_max_new_tokens,
+                    temperature=args.screenvlm_temperature,
+                    top_p=args.screenvlm_top_p,
+                    top_k=args.screenvlm_top_k,
+                    tensor_parallel_size=args.screenvlm_tp,
+                    gpu_memory_utilization=args.screenvlm_gpu_mem,
+                    max_model_len=args.screenvlm_max_model_len,
+                ),
+            )
+        )
+
     for entry in args.gemini:
         name, model_id = _parse_name_path(entry)
         model_specs.append(
@@ -309,6 +351,7 @@ def main(argv: List[str] | None = None):
 
     reports = []
     base_pred_dir = Path(args.save_preds) if args.save_preds else None
+    summary_rows = []
     ctx = mp.get_context("spawn")
     out_path = Path(args.output) if args.output else None
     if out_path:
@@ -344,6 +387,7 @@ def main(argv: List[str] | None = None):
         print(f"Model {model_name}:")
         for metric_name, data in report["dataset_metrics"].items():
             print(f"  {metric_name}: {data.get('value')}")
+        summary_rows.append((model_name, report["dataset_metrics"]))
 
         if out_path:
             existing = []
@@ -358,6 +402,28 @@ def main(argv: List[str] | None = None):
             with out_path.open("w", encoding="utf-8") as f:
                 json.dump(merged, f, indent=2)
             print(f"  Appended report to {out_path}")
+
+    if out_path and summary_rows:
+        import csv
+
+        csv_path = out_path.parent / "summary.csv"
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        metric_names = sorted({m for _, metrics in summary_rows for m in metrics.keys()})
+        with csv_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["model"] + metric_names)
+            for model_name, metrics in summary_rows:
+                row = [model_name]
+                for m in metric_names:
+                    val = metrics.get(m, {}).get("value")
+                    if isinstance(val, float):
+                        row.append(f"{val:.3f}")
+                    elif val is None:
+                        row.append("")
+                    else:
+                        row.append(val)
+                writer.writerow(row)
+        print(f"\nWrote summary CSV to {csv_path}")
 
 
 if __name__ == "__main__":
