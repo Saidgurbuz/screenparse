@@ -298,6 +298,135 @@ def build_groundcua_dataset(
     return samples
 
 
+def build_screenspot_dataset(
+    root_dir: str,
+    split: str = "all",
+    include_raw: bool = False,
+    image_exts: Sequence[str] = (".png", ".jpg", ".jpeg"),
+    max_samples: Optional[int] = None,
+    label_mapper: Optional[LabelMapper] = None,
+) -> List[EvaluationSample]:
+    """
+    Build ScreenSpot dataset from preprocessed JSON/image folders.
+
+    Layout:
+      root_dir/images/{web,pc,mobile}/file_name.png
+      root_dir/data/{web,pc,mobile}/file_name.json
+    """
+    root = Path(root_dir)
+    data_root = root / "data"
+    img_root = root / "images"
+    splits = ["web", "pc", "mobile"] if split == "all" else [split]
+
+    def _label_from_type(val: Optional[str]) -> Optional[str]:
+        if not val:
+            return None
+        v = val.strip().lower()
+        if v == "text":
+            return "Text"
+        if v in ("icon", "widget"):
+            return "Image"
+        return val
+
+    per_split = None
+    if max_samples:
+        per_split = max(1, max_samples // max(len(splits), 1))
+
+    samples: List[EvaluationSample] = []
+    for sp in splits:
+        ann_dir = data_root / sp
+        img_dir = img_root / sp
+        if not ann_dir.exists() or not img_dir.exists():
+            continue
+
+        ann_files = sorted(ann_dir.glob("*.json"))
+        if per_split:
+            import random
+
+            random.shuffle(ann_files)
+            ann_files = ann_files[:per_split]
+
+        for ann_path in ann_files:
+            ann_items = _load_annotations(ann_path)
+            if not ann_items:
+                continue
+            stem = ann_path.stem
+            img_path = img_dir / f"{stem}.png"
+            if not img_path.exists():
+                # Try to fall back to image_path in JSON
+                img_path_str = ann_items[0].get("image_path")
+                if img_path_str:
+                    candidate = (root / img_path_str).resolve()
+                    if candidate.exists():
+                        img_path = candidate
+            if not img_path.exists():
+                continue
+
+            img_size = _read_image_size(img_path)
+            if img_size is None:
+                continue
+            img_w, img_h = img_size
+
+            elements: List[UIElement] = []
+            instructions = []
+            for obj in ann_items:
+                bbox = None
+                if obj.get("bbox"):
+                    bb = obj.get("bbox")
+                    if isinstance(bb, (list, tuple)) and len(bb) == 4:
+                        x0, y0, x1, y1 = bb
+                        bbox = _extract_bbox(
+                            {
+                                "bbox_ltrb": (
+                                    float(x0) * img_w,
+                                    float(y0) * img_h,
+                                    float(x1) * img_w,
+                                    float(y1) * img_h,
+                                )
+                            }
+                        )
+                if not bbox:
+                    continue
+                label = _label_from_type(obj.get("data_type"))
+                raw_payload = obj if include_raw else None
+                elements.append(
+                    UIElement(
+                        bbox=bbox,
+                        label=label,
+                        text=None,
+                        score=None,
+                        raw=raw_payload,
+                    )
+                )
+                if obj.get("instruction"):
+                    instructions.append(obj.get("instruction"))
+
+            if label_mapper:
+                elements = [label_mapper.map_element(e) for e in elements]
+
+            samples.append(
+                EvaluationSample(
+                    image_path=str(img_path),
+                    ground_truth=elements,
+                    image_size=img_size,
+                    metadata={
+                        "stem": stem,
+                        "split": sp,
+                        "ground_truth_file": str(ann_path),
+                        "format": "screenspot",
+                        "instructions": instructions,
+                    },
+                    sample_id=stem,
+                )
+            )
+            if max_samples and len(samples) >= max_samples:
+                break
+        if max_samples and len(samples) >= max_samples:
+            break
+
+    return samples
+
+
 def _load_class_names(classes_path: Path) -> Optional[List[str]]:
     if not classes_path.exists():
         return None

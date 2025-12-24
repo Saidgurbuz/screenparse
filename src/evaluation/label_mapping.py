@@ -74,6 +74,8 @@ GROUNDCUA_CATEGORIES = [
     "Others",
 ]
 
+SCREENSPOT_CATEGORIES = ["icon", "text"]
+
 groundcua_to_custom: Dict[str, List[str]] = {
     "Input Element": [
         "Search Field",
@@ -163,10 +165,38 @@ groundcua_representative_map: Dict[str, str] = {
     "Others": "Link",
 }
 
+_SCREENSPOT_TEXT_LIKE = {
+    "Table",
+    "Status Bar",
+    "Tooltip",
+    "List",
+    "List Item",
+    "Alert",
+    "Text",
+    "Heading",
+    "Code snippet",
+    "Notification",
+    "Badge",
+    "Breadcrumb",
+    "Link",
+    "Pagination",
+}
+
+custom_to_screenspot: Dict[str, str] = {
+    element: ("text" if element in _SCREENSPOT_TEXT_LIKE else "icon") for element in UI_ELEMENTS_55
+}
+
+screenspot_representative_map: Dict[str, str] = {
+    "text": "Text",
+    "icon": "Image",
+}
+
 
 def get_class_list(schema: str) -> List[str]:
     if schema == "groundcua":
         return GROUNDCUA_CATEGORIES
+    if schema == "screenspot":
+        return SCREENSPOT_CATEGORIES
     return UI_ELEMENTS_55
 
 
@@ -186,10 +216,21 @@ class LabelMapper:
             if lbl in GROUNDCUA_CATEGORIES:
                 return lbl
             return lbl
+        if self.target_schema == "screenspot":
+            low = lbl.lower()
+            if low in SCREENSPOT_CATEGORIES:
+                return low
+            if lbl in custom_to_screenspot:
+                return custom_to_screenspot[lbl]
+            if lbl in screenspot_representative_map:
+                return screenspot_representative_map[lbl].lower()
+            return low
 
         # target custom55
         if lbl in groundcua_representative_map:
             return groundcua_representative_map[lbl]
+        if lbl.lower() in screenspot_representative_map:
+            return screenspot_representative_map[lbl.lower()]
         return lbl
 
     def map_element(self, el: UIElement) -> UIElement:

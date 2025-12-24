@@ -103,3 +103,47 @@ class PageIoU(Metric):
                 "union_pixels": int(union),
             },
         )
+
+
+class PageIoURecall(PageIoU):
+    """
+    Page-level recall: coverage of GT pixels by predictions.
+
+    Computes sum(min) / sum(GT) over pixels. This mirrors PageIoU but uses
+    the GT mask as denominator.
+    """
+
+    def __init__(self, max_resolution: int = 0, name: str = "page_iou_recall"):
+        super().__init__(max_resolution=max_resolution, name=name)
+
+    def compute(self, sample: EvaluationSample, predictions: Sequence[UIElement]) -> MetricResult:
+        size = self._maybe_read_image_size(sample)
+        if size is None:
+            return MetricResult(self.name, None, details={"reason": "missing_image"})
+
+        width, height = size
+        gt_boxes = [el.bbox for el in sample.ground_truth]
+        pred_boxes = [el.bbox for el in predictions]
+
+        gt_mask = self._render_mask(gt_boxes, width, height)
+        pred_mask = self._render_mask(pred_boxes, width, height)
+
+        inter = np.logical_and(gt_mask, pred_mask).sum(dtype=np.int64)
+        gt_pixels = gt_mask.sum(dtype=np.int64)
+
+        if gt_pixels == 0:
+            value = 1.0 if not gt_boxes and not pred_boxes else 0.0
+        else:
+            value = float(inter) / float(gt_pixels)
+
+        return MetricResult(
+            name=self.name,
+            value=value,
+            details={
+                "gt": len(gt_boxes),
+                "pred": len(pred_boxes),
+                "scale": self.max_resolution,
+                "inter_pixels": int(inter),
+                "gt_pixels": int(gt_pixels),
+            },
+        )

@@ -1,19 +1,67 @@
-"""PYTHONPATH=src .venv/bin/python -m evaluation.cli \
-  --format yolo \
+"""
+For GroundCUA evaluation:
+
+PYTHONPATH=src .venv/bin/python -m evaluation.cli \
   --image-dir /proj/docling-vision/users/said/data/yolo_filtered/images/test \
   --labels-dir /proj/docling-vision/users/said/data/yolo_filtered/labels/test \
   --groundcua-root /proj/docling-vision/users/said/GroundCUA/GroundCUA \
   --classes /proj/docling-vision/users/said/data/yolo_filtered/classes.txt \
   --max-samples 870 \
+  --screenvlm /proj/docling-vision/users/said/nanoVLM/granite_docling_resume/nanoVLM_siglip2-base-patch16-512_2048_mp4_granite_docling_resume_16xGPU_full_ds_bs64_187500_lr_vision_0.002-language_0.002-0.0212_1209-023045_lsf283674/converted/step_46000 \
   --yolo-model /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
   --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
   --omniparser-weights /proj/docling-vision/users/said/webshot-dataset/runs/omniparser/model.pt \
   --gemini gemini-2.5-flash-lite \
   --class-schema groundcua \
-  --metrics page_iou,label_page_iou,map,recall,recall_agnostic \
-  --batch-size 32 \
-  --save-preds evaluation_results_groundcua/preds \
-  --output evaluation_results_groundcua/report.json"""
+  --metrics page_iou,page_iou_recall,label_page_iou,map,recall,recall_agnostic,ned \
+  --batch-size 32
+  
+  
+For YOLO evaluation:
+
+PYTHONPATH=src .venv/bin/python -m evaluation.cli \
+  --format yolo \
+  --image-dir /proj/docling-vision/users/said/data/yolo_filtered/images/test \
+  --labels-dir /proj/docling-vision/users/said/data/yolo_filtered/labels/test \
+  --classes /proj/docling-vision/users/said/data/yolo_filtered/classes.txt \
+  --max-samples 1000 \
+  --screenvlm /proj/docling-vision/users/said/nanoVLM/granite_docling_resume/nanoVLM_siglip2-base-patch16-512_2048_mp4_granite_docling_resume_16xGPU_full_ds_bs64_187500_lr_vision_0.002-language_0.002-0.0212_1209-023045_lsf283674/converted/step_46000 \
+  --yolo-model /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
+  --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
+  --omniparser-weights /proj/docling-vision/users/said/webshot-dataset/runs/omniparser/model.pt \
+  --metrics page_iou,page_iou_recall,label_page_iou,map,recall,recall_agnostic,ned \
+  --batch-size 64
+  
+  
+For ScreenSpot evaluation:
+PYTHONPATH=src .venv/bin/python -m evaluation.cli \
+  --image-dir /proj/docling-vision/users/said/data/yolo_filtered/images/test \
+  --labels-dir /proj/docling-vision/users/said/data/yolo_filtered/labels/test \
+  --screenspot-root /proj/docling-vision/users/said/SeeClick/ScreenSpot \
+  --screenspot-split all \
+  --classes /proj/docling-vision/users/said/data/yolo_filtered/classes.txt \
+  --screenvlm /proj/docling-vision/users/said/nanoVLM/granite_docling_resume/nanoVLM_siglip2-base-patch16-512_2048_mp4_granite_docling_resume_16xGPU_full_ds_bs64_187500_lr_vision_0.002-language_0.002-0.0212_1209-023045_lsf283674/converted/step_46000 \
+  --yolo-model /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
+  --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
+  --omniparser-weights /proj/docling-vision/users/said/webshot-dataset/runs/omniparser/model.pt \
+  --gemini gemini-2.5-flash-lite \
+  --class-schema screenspot \
+  --metrics page_iou,page_iou_recall,label_page_iou,map,recall,recall_agnostic \
+  --batch-size 64
+
+For ScreenSpot evaluation with Qwen3-VL:
+PYTHONPATH=src .venv/bin/python -m evaluation.cli \
+  --image-dir /proj/docling-vision/users/said/data/yolo_filtered/images/test \
+  --labels-dir /proj/docling-vision/users/said/data/yolo_filtered/labels/test \
+  --screenspot-root /proj/docling-vision/users/said/SeeClick/ScreenSpot \
+  --screenspot-split pc \
+  --classes /proj/docling-vision/users/said/data/yolo_filtered/classes.txt \
+  --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
+  --class-schema screenspot \
+  --metrics page_iou,page_iou_recall,label_page_iou,map,recall,recall_agnostic \
+  --batch-size 64
+
+  """
 
 
 from __future__ import annotations
@@ -21,15 +69,17 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing as mp
+import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from .datasets import build_raw_dataset, build_yolo_dataset, build_groundcua_dataset
+from .datasets import build_raw_dataset, build_yolo_dataset, build_groundcua_dataset, build_screenspot_dataset
 from .label_mapping import LabelMapper
 from .metrics.label_page_iou import LabelAwarePageIoU
 from .metrics.map import MeanAveragePrecision
 from .metrics.recall import Recall
-from .metrics.page_iou import PageIoU
+from .metrics.ned import NormalizedEditDistance
+from .metrics.page_iou import PageIoU, PageIoURecall
 from .models.base import OfflinePredictionRunner
 from .models.gemini import GeminiRunner
 from .models.paddleocrvl import PaddleOCRVLRunner
@@ -44,6 +94,8 @@ def _metric_specs(metric_names: List[str], args) -> List[Tuple[str, Dict]]:
     for name in metric_names:
         if name == "page_iou":
             specs.append(("page_iou", {"max_resolution": args.pageiou_resolution}))
+        elif name in ("page_iou_recall", "pageiou_recall", "page_iou_rec"):
+            specs.append(("page_iou_recall", {"max_resolution": args.pageiou_resolution}))
         elif name in ("label_page_iou", "labelawarepageiou"):
             specs.append(("label_page_iou", {"max_resolution": args.pageiou_resolution}))
         elif name in ("map", "map_50", "map50"):
@@ -52,6 +104,8 @@ def _metric_specs(metric_names: List[str], args) -> List[Tuple[str, Dict]]:
             specs.append(("recall", {"iou_threshold": args.recall_iou_thr, "label_aware": True}))
         elif name in ("recall_agnostic", "recall_nolabel", "recall_any"):
             specs.append(("recall", {"iou_threshold": args.recall_iou_thr, "label_aware": False}))
+        elif name in ("ned", "normalized_edit_distance"):
+            specs.append(("ned", {"iou_threshold": args.ned_iou_thr}))
         else:
             print(f"Warning: unknown metric '{name}' - skipping.")
     return specs
@@ -62,13 +116,72 @@ def _build_metrics(specs: List[Tuple[str, Dict]]):
     for name, kwargs in specs:
         if name == "page_iou":
             metrics.append(PageIoU(**kwargs))
+        elif name == "page_iou_recall":
+            metrics.append(PageIoURecall(**kwargs))
         elif name == "label_page_iou":
             metrics.append(LabelAwarePageIoU(**kwargs))
         elif name == "map":
             metrics.append(MeanAveragePrecision(**kwargs))
         elif name == "recall":
             metrics.append(Recall(**kwargs))
+        elif name == "ned":
+            metrics.append(NormalizedEditDistance(**kwargs))
     return metrics
+
+
+def _slug(text: str, max_len: int = 24) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    if not cleaned:
+        return "unknown"
+    return cleaned[:max_len]
+
+
+def _models_token(model_names: List[str]) -> str:
+    names = [_slug(n, 11) for n in model_names if n]
+    if not names:
+        return "model"
+    if len(names) <= 5:
+        return "+".join(names)
+    return "+".join(names[:5]) + f"+{len(names)-5}"
+
+
+def _dataset_token(args) -> str:
+    if args.groundcua_root:
+        base = _slug(Path(args.groundcua_root).name, 16)
+        if "groundcua" in base:
+            return "gcua"
+        return f"gcua-{base}"
+    if args.screenspot_root:
+        base = _slug(Path(args.screenspot_root).name, 16)
+        split = args.screenspot_split.lower()
+        if split != "all":
+            return f"ss-{split}"
+        if "screenspot" in base:
+            return "ss"
+        return f"ss-{base}"
+    if args.format == "yolo" or args.labels_dir:
+        return f"yolo-{_slug(Path(args.image_dir).name, 16)}"
+    return f"raw-{_slug(Path(args.image_dir).name, 16)}"
+
+
+def _schema_token(schema: str) -> str:
+    if schema == "groundcua":
+        return "gcua"
+    if schema == "screenspot":
+        return "ss"
+    return "c55"
+
+
+def _resolve_output_paths(args, dataset_len: int, model_names: List[str]) -> Tuple[Path, Path]:
+    models_tok = _models_token(model_names)
+    dataset_tok = _dataset_token(args)
+    schema_tok = _schema_token(args.class_schema)
+    run_id = f"m{len(model_names)}-{models_tok}_n{dataset_len}_ds-{dataset_tok}_map-{schema_tok}"
+    base_dir = Path("evaluation") / run_id
+    out_path = Path(args.output) if args.output else base_dir / "report.json"
+    preds_dir = Path(args.save_preds) if args.save_preds else base_dir / "preds"
+    return out_path, preds_dir
 
 
 def _build_runner_from_spec(spec: Tuple[str, Dict]):
@@ -88,7 +201,7 @@ def _build_runner_from_spec(spec: Tuple[str, Dict]):
     raise ValueError(f"Unknown model kind {kind}")
 
 
-def _eval_worker(dataset, metric_specs, model_spec, pred_dir, batch_size, queue, class_schema):
+def _eval_worker(dataset, metric_specs, model_spec, pred_dir, batch_size, queue, class_schema, save_viz):
     try:
         metrics = _build_metrics(metric_specs)
         mapper = LabelMapper(class_schema)
@@ -99,6 +212,7 @@ def _eval_worker(dataset, metric_specs, model_spec, pred_dir, batch_size, queue,
             model,
             save_predictions_dir=pred_dir,
             batch_size=batch_size,
+            save_viz=save_viz,
         )
         queue.put({"ok": True, "report": report})
     except Exception as exc:
@@ -115,6 +229,13 @@ def _parse_name_path(val: str) -> Tuple[str, str]:
 
 def _build_dataset(args, label_mapper):
     fmt = args.format
+    if args.screenspot_root:
+        return build_screenspot_dataset(
+            root_dir=args.screenspot_root,
+            split=args.screenspot_split,
+            max_samples=args.max_samples,
+            label_mapper=label_mapper,
+        )
     if args.groundcua_root:
         return build_groundcua_dataset(
             root_dir=args.groundcua_root,
@@ -143,6 +264,13 @@ def main(argv: List[str] | None = None):
     parser.add_argument("--classes", help="Optional classes.txt for YOLO labels.")
     parser.add_argument("--format", choices=["auto", "raw", "yolo"], default="auto", help="Dataset format.")
     parser.add_argument("--groundcua-root", help="GroundCUA root directory (contains data/ and images/).")
+    parser.add_argument("--screenspot-root", help="ScreenSpot root directory (contains data/ and images/).")
+    parser.add_argument(
+        "--screenspot-split",
+        choices=["all", "web", "pc", "mobile"],
+        default="all",
+        help="ScreenSpot split to evaluate.",
+    )
     parser.add_argument("--max-samples", type=int, help="Cap number of samples for quick runs.")
 
     parser.add_argument("--yolo-model", action="append", default=[], help="YOLO weights (name=path or just path).")
@@ -171,15 +299,10 @@ def main(argv: List[str] | None = None):
         default=[],
         help="ScreenVLM checkpoint (name=path or just path).",
     )
-    parser.add_argument("--screenvlm-processor", help="Optional processor path for ScreenVLM.")
-    parser.add_argument("--screenvlm-revision", help="Optional model revision for ScreenVLM.")
     parser.add_argument("--screenvlm-max-new-tokens", type=int, default=6192)
     parser.add_argument("--screenvlm-temperature", type=float, default=0.0)
     parser.add_argument("--screenvlm-top-p", type=float, default=0.9)
     parser.add_argument("--screenvlm-top-k", type=int, default=50)
-    parser.add_argument("--screenvlm-tp", type=int, default=1, help="Tensor parallel size for ScreenVLM.")
-    parser.add_argument("--screenvlm-gpu-mem", type=float, default=0.9)
-    parser.add_argument("--screenvlm-max-model-len", type=int, default=262144)
     parser.add_argument(
         "--gemini",
         action="append",
@@ -213,20 +336,22 @@ def main(argv: List[str] | None = None):
     parser.add_argument("--pageiou-resolution", type=int, default=0, help="Downscale long side before PageIoU.")
     parser.add_argument("--map-iou-thr", type=float, default=0.5, help="IoU threshold for mAP.")
     parser.add_argument("--recall-iou-thr", type=float, default=0.5, help="IoU threshold for recall.")
+    parser.add_argument("--ned-iou-thr", type=float, default=0.0, help="IoU threshold for NED matching.")
     parser.add_argument(
         "--metrics",
-        default="page_iou,label_page_iou,map,recall_label,recall_agnostic",
-        help="Comma-separated metrics: page_iou,label_page_iou,map,recall_label,recall_agnostic",
+        default="page_iou,page_iou_recall,label_page_iou,map,recall_label,recall_agnostic,ned",
+        help="Comma-separated metrics: page_iou,page_iou_recall,label_page_iou,map,recall_label,recall_agnostic,ned",
     )
     parser.add_argument(
         "--class-schema",
-        choices=["custom55", "groundcua"],
+        choices=["custom55", "groundcua", "screenspot"],
         default="custom55",
         help="Target class schema for labels.",
     )
     parser.add_argument("--batch-size", type=int, help="Batch size for predict_batch.")
     parser.add_argument("--save-preds", help="Base directory to dump model predictions.")
     parser.add_argument("--output", help="Path to write JSON report.")
+    parser.add_argument("--no-viz", action="store_true", help="Disable GT vs prediction visualization output.")
 
     args = parser.parse_args(argv)
 
@@ -279,6 +404,22 @@ def main(argv: List[str] | None = None):
                 ),
             )
         )
+        
+    for entry in args.screenvlm:
+        name, checkpoint = _parse_name_path(entry)
+        model_specs.append(
+            (
+                "screenvlm",
+                dict(
+                    checkpoint=checkpoint,
+                    name=name,
+                    max_new_tokens=args.screenvlm_max_new_tokens,
+                    temperature=args.screenvlm_temperature,
+                    top_p=args.screenvlm_top_p,
+                    top_k=args.screenvlm_top_k,
+                ),
+            )
+        )
 
     for entry in args.qwen3_vl:
         name, model_id = _parse_name_path(entry)
@@ -293,27 +434,6 @@ def main(argv: List[str] | None = None):
                     temperature=args.qwen_temperature,
                     top_p=args.qwen_top_p,
                     class_schema=args.class_schema,
-                ),
-            )
-        )
-
-    for entry in args.screenvlm:
-        name, checkpoint = _parse_name_path(entry)
-        model_specs.append(
-            (
-                "screenvlm",
-                dict(
-                    checkpoint=checkpoint,
-                    name=name,
-                    processor_path=args.screenvlm_processor,
-                    revision=args.screenvlm_revision,
-                    max_new_tokens=args.screenvlm_max_new_tokens,
-                    temperature=args.screenvlm_temperature,
-                    top_p=args.screenvlm_top_p,
-                    top_k=args.screenvlm_top_k,
-                    tensor_parallel_size=args.screenvlm_tp,
-                    gpu_memory_utilization=args.screenvlm_gpu_mem,
-                    max_model_len=args.screenvlm_max_model_len,
                 ),
             )
         )
@@ -347,19 +467,18 @@ def main(argv: List[str] | None = None):
     if not model_specs:
         raise SystemExit("No models specified. Use --yolo-model or --offline-pred.")
 
-    print(f"Running {len(model_specs)} model(s): {[cfg[1].get('name') for cfg in model_specs]}")
+    model_names = [cfg.get("name") or cfg.get("model_id") or kind for kind, cfg in model_specs]
+    print(f"Running {len(model_specs)} model(s): {model_names}")
 
     reports = []
-    base_pred_dir = Path(args.save_preds) if args.save_preds else None
     summary_rows = []
     ctx = mp.get_context("spawn")
-    out_path = Path(args.output) if args.output else None
-    if out_path:
-        out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path, base_pred_dir = _resolve_output_paths(args, len(dataset), model_names)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     for kind, cfg in model_specs:
         model_name = cfg.get("name") or cfg.get("model_id") or kind
-        pred_dir = base_pred_dir / model_name if base_pred_dir else None
+        pred_dir = base_pred_dir / model_name
         print(f"\n[Model] Starting isolated process for {model_name}")
         queue = ctx.Queue()
         proc = ctx.Process(
@@ -372,6 +491,7 @@ def main(argv: List[str] | None = None):
                 args.batch_size,
                 queue,
                 args.class_schema,
+                not args.no_viz,
             ),
         )
         proc.start()
@@ -389,21 +509,20 @@ def main(argv: List[str] | None = None):
             print(f"  {metric_name}: {data.get('value')}")
         summary_rows.append((model_name, report["dataset_metrics"]))
 
-        if out_path:
-            existing = []
-            if out_path.exists():
-                with out_path.open("r", encoding="utf-8") as f:
-                    try:
-                        loaded = json.load(f)
-                        existing = loaded if isinstance(loaded, list) else [loaded]
-                    except json.JSONDecodeError:
-                        existing = []
-            merged = existing + [report]
-            with out_path.open("w", encoding="utf-8") as f:
-                json.dump(merged, f, indent=2)
-            print(f"  Appended report to {out_path}")
+        existing = []
+        if out_path.exists():
+            with out_path.open("r", encoding="utf-8") as f:
+                try:
+                    loaded = json.load(f)
+                    existing = loaded if isinstance(loaded, list) else [loaded]
+                except json.JSONDecodeError:
+                    existing = []
+        merged = existing + [report]
+        with out_path.open("w", encoding="utf-8") as f:
+            json.dump(merged, f, indent=2)
+        print(f"  Appended report to {out_path}")
 
-    if out_path and summary_rows:
+    if summary_rows:
         import csv
 
         csv_path = out_path.parent / "summary.csv"

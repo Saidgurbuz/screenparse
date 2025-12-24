@@ -104,17 +104,11 @@ class ScreenVLMRunner(ModelRunner):
         self,
         checkpoint: str,
         name: str | None = None,
-        processor_path: str | None = None,
         prompt: str = DEFAULT_PROMPT,
         max_new_tokens: int = 6192,
         temperature: float = 0.0,
         top_p: float = 0.9,
         top_k: int = 50,
-        tensor_parallel_size: int = 1,
-        gpu_memory_utilization: float = 0.9,
-        max_model_len: int = 262144,
-        revision: str | None = None,
-        trust_remote_code: bool = True,
     ):
         runner_name = name or Path(checkpoint).name
         super().__init__(runner_name)
@@ -128,10 +122,7 @@ class ScreenVLMRunner(ModelRunner):
         os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 
         self.prompt = prompt
-        self.processor = AutoProcessor.from_pretrained(
-            processor_path or checkpoint,
-            trust_remote_code=trust_remote_code,
-        )
+        self.processor = AutoProcessor.from_pretrained(checkpoint)
         self.sampling_params = SamplingParams(
             temperature=temperature,
             top_p=top_p,
@@ -141,12 +132,8 @@ class ScreenVLMRunner(ModelRunner):
         )
         self.llm = LLM(
             model=checkpoint,
-            revision=revision,
-            trust_remote_code=trust_remote_code,
+            revision="untied",
             limit_mm_per_prompt={"image": 1},
-            tensor_parallel_size=tensor_parallel_size,
-            gpu_memory_utilization=gpu_memory_utilization,
-            max_model_len=max_model_len,
         )
 
     def _build_prompt(self) -> str:

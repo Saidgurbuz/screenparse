@@ -10,9 +10,8 @@ import torch
 from PIL import Image
 from transformers import AutoProcessor
 
-from ..datasets import element_from_obj
 from ..label_mapping import get_class_list
-from ..types import EvaluationSample, UIElement
+from ..types import BoundingBox, EvaluationSample, UIElement
 from .base import ModelRunner
 
 
@@ -32,7 +31,18 @@ def _default_prompt(class_schema: str) -> str:
     )
 
 
-def _default_parser(output_text: str) -> List[UIElement]:
+def _default_parser(output_text: str, width: int, height: int) -> List[UIElement]:
+    return _parse_output(output_text, width, height)
+
+
+def _scale_val(val: float, size: int, norm: int = 1000) -> float:
+    if size <= 0:
+        return 0.0
+    v = max(0.0, min(float(val), float(norm)))
+    return (v / float(norm)) * float(size)
+
+
+def _parse_output(output_text: str, width: int, height: int) -> List[UIElement]:
     try:
         start = output_text.find("[")
         end = output_text.rfind("]")
@@ -43,9 +53,41 @@ def _default_parser(output_text: str) -> List[UIElement]:
             return []
         elements: List[UIElement] = []
         for obj in payload:
-            el = element_from_obj(obj, include_raw=False)
-            if el:
-                elements.append(el)
+            label = obj.get("label") or obj.get("type") or obj.get("tag")
+            text = obj.get("text") or obj.get("inner_text") or obj.get("own_text")
+            score = obj.get("score") or obj.get("confidence")
+            bbox = None
+            if "bbox_ltrb" in obj:
+                l, t, r, b = obj["bbox_ltrb"]
+                bbox = (l, t, r, b)
+            elif "bbox_tlbr" in obj:
+                t, l, b, r = obj["bbox_tlbr"]
+                bbox = (l, t, r, b)
+            elif "bbox" in obj:
+                l, t, r, b = obj["bbox"]
+                bbox = (l, t, r, b)
+            elif "bbox_xywh" in obj:
+                x, y, w, h = obj["bbox_xywh"]
+                bbox = (x, y, x + w, y + h)
+            if bbox is None:
+                continue
+            l, t, r, b = bbox
+            x1 = _scale_val(l, width)
+            y1 = _scale_val(t, height)
+            x2 = _scale_val(r, width)
+            y2 = _scale_val(b, height)
+            if x2 < x1:
+                x1, x2 = x2, x1
+            if y2 < y1:
+                y1, y2 = y2, y1
+            elements.append(
+                UIElement(
+                    bbox=BoundingBox(x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)),
+                    label=label,
+                    text=text,
+                    score=float(score) if score is not None else None,
+                )
+            )
         return elements
     except Exception:
         return []
@@ -151,15 +193,24 @@ class Qwen3VLRunner(ModelRunner):
 
     def predict_batch(self, samples: Iterable[EvaluationSample]) -> List[Sequence[UIElement]]:
         inputs = []
+        sizes = []
         for sample in samples:
             msgs = self._build_messages(sample)
             inputs.append(self._prepare_inputs(msgs))
+            try:
+                with Image.open(sample.image_path) as im:
+                    sizes.append(im.size)
+            except Exception:
+                sizes.append((0, 0))
 
         outputs = self.llm.generate(inputs, sampling_params=self.sampling_params)
         parsed: List[Sequence[UIElement]] = []
-        for out in outputs:
+        for out, (w, h) in zip(outputs, sizes):
             text = out.outputs[0].text if out.outputs else ""
-            parsed.append(self.parser(text))
+            try:
+                parsed.append(self.parser(text, w, h))
+            except TypeError:
+                parsed.append(self.parser(text))
         return parsed
 
     def close(self):

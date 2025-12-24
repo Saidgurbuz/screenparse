@@ -63,3 +63,5 @@ urls/
 *.pt
 *.ipynb
 bash_scripts
+./evaluation*
+output
