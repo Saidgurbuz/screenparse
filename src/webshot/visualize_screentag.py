@@ -1,4 +1,4 @@
-# src/dataset_tool/visualize_screentag.py
+# src/webshot/visualize_screentag.py
 """
 Visualization tool for ScreenTag representations.
 

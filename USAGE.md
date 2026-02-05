@@ -445,7 +445,7 @@ filter_elements(
 
 ### Custom Viewport
 
-Modify `src/dataset_tool/config.py`:
+Modify `src/webshot/config.py`:
 
 ```python
 @dataclass
@@ -457,14 +457,14 @@ class Viewport:
 
 ### Custom Element Mapping
 
-Edit `src/dataset_tool/yolo_export.py` to modify `YOLO_CLASSES` or `map_to_yolo_class()`.
+Edit `src/webshot/yolo_export.py` to modify `YOLO_CLASSES` or `map_to_yolo_class()`.
 
 ## Programmatic Usage
 
 ```python
-from dataset_tool.config import Config
-from dataset_tool.crawl import crawl
-from dataset_tool.yolo_export import export_yolo_dataset
+from webshot.config import Config
+from webshot.crawl import crawl
+from webshot.yolo_export import export_yolo_dataset
 
 # Crawl
 cfg = Config(out_dir="data/raw", do_ocr=False, headless=True)

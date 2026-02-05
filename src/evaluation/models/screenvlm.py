@@ -11,7 +11,7 @@ from PIL import Image
 from transformers import AutoProcessor
 from vllm import LLM, SamplingParams
 
-from dataset_tool.utils import parse_screentag
+from webshot.utils import parse_screentag
 from ..types import BoundingBox, EvaluationSample, UIElement
 from .base import ModelRunner
 

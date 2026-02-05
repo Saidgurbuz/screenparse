@@ -21,7 +21,7 @@ from ultralytics import YOLO
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.dataset_tool.ui_postproc import get_class_id_sets, postprocess_detections
+from src.webshot.ui_postproc import get_class_id_sets, postprocess_detections
 
 
 def auto_device():

@@ -20,6 +20,6 @@ dependencies = [
 package = true
 
 [project.scripts]
-wsd = "dataset_tool.cli:main"
+wsd = "webshot.cli:main"
 wsd-urls = "url_tools.generate_urls:main"
 wsd-eval = "evaluation.cli:main"

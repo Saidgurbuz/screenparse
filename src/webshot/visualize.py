@@ -1,4 +1,4 @@
-# src/dataset_tool/visualize.py
+# src/webshot/visualize.py
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 import os, math, random

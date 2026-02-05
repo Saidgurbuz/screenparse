@@ -25,7 +25,7 @@ current_dir = Path(__file__).resolve().parent
 src_dir = current_dir.parent / "src"
 sys.path.append(str(src_dir))
 
-from dataset_tool.inference_pipeline import InferencePipeline, process_directory
+from webshot.inference_pipeline import InferencePipeline, process_directory
 
 def main():
     parser = argparse.ArgumentParser(description="Convert YOLO output to ScreenTag format end-to-end")

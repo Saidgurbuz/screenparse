@@ -1,4 +1,4 @@
-# src/dataset_tool/dedupe.py
+# src/webshot/dedupe.py
 import os, csv
 from typing import Dict, List, Tuple, Optional
 from PIL import Image

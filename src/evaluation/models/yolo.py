@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence
 
-from dataset_tool.inference_pipeline import InferencePipeline
+from webshot.inference_pipeline import InferencePipeline
 
 from ..datasets import element_from_obj
 from ..types import EvaluationSample, UIElement
