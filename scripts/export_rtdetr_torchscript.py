@@ -9,26 +9,18 @@ IMPORTANT: The model must be traced on the same device type it will be used for 
 - Use --device cuda (default) for GPU inference
 - Use --device cpu for CPU-only inference
 
-Usage (for GPU inference):
-    cd /proj/docling-vision/users/said/RTDETRv2
-    .venv/bin/python /proj/docling-vision/users/said/webshot-dataset/scripts/export_rtdetr_torchscript.py \
-        -c ./src/rtdetrv2/configs/model/rtdetrv2_r50vd_6x_coco.yml \
-        -m ./outputs_rtdetrv2_r50vd_6x_coco/best.pth \
-        -o ./outputs_rtdetrv2_r50vd_6x_coco/model.torchscript.pt \
+Usage:
+    python scripts/export_rtdetr_torchscript.py \
+        -c path/to/config.yml \
+        -m path/to/model.pth \
+        -o path/to/output.torchscript.pt \
         --device cuda
 
 The exported model can then be used in the evaluation framework:
-    PYTHONPATH=src .venv/bin/python -m evaluation.cli \
-        --rtdetr /path/to/model.torchscript.pt \
-        --rtdetr-classes /path/to/classes.txt \
+    PYTHONPATH=src python -m evaluation.cli \
+        --rtdetr path/to/model.torchscript.pt \
+        --rtdetr-classes path/to/classes.txt \
         ...
-        
-cd /proj/docling-vision/users/said/RTDETRv2
-    .venv/bin/python /proj/docling-vision/users/said/webshot-dataset/scripts/export_rtdetr_torchscript.py \
-        -c ./src/rtdetrv2/configs/model/rtdetrv2_r50vd_6x_coco.yml \
-        -m /proj/docling-vision/users/said/webshot-dataset/rtdetrv2_r50vd_6x_coco_ema.pth \
-        -o /proj/docling-vision/users/said/webshot-dataset/rtdetrv2.torchscript.pt \
-        --device cuda
 """
 import argparse
 import torch

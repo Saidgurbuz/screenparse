@@ -15,6 +15,7 @@ from .utils import (
     rect_to_int,
     build_element_tree,
     elements_to_screentag,
+    navigate_resilient,
 )
 from .labels import guess_type
 from tqdm import tqdm
@@ -23,28 +24,28 @@ from tqdm import tqdm
 def is_blank_image(img_path: str, white_threshold: float = 0.99) -> bool:
     """
     Check if an image is blank (mostly white/single color).
-    
+
     Args:
         img_path: Path to the image file
         white_threshold: Fraction of pixels that must be white/near-white to consider blank
-        
+
     Returns:
         True if image is blank, False otherwise
     """
     try:
         from PIL import Image
         import numpy as np
-        
+
         img = Image.open(img_path).convert('RGB')
         pixels = np.array(img)
-        
+
         # Check if image is mostly white (RGB values > 250)
         white_pixels = np.all(pixels > 250, axis=2)
         white_ratio = np.mean(white_pixels)
-        
+
         if white_ratio > white_threshold:
             return True
-        
+
         # Also check for single-color images (very low variance)
         # This catches solid gray, black, or other solid color pages
         # Compute std per channel and take the max - if all pixels are identical,
@@ -52,49 +53,11 @@ def is_blank_image(img_path: str, white_threshold: float = 0.99) -> bool:
         pixel_std = np.max([np.std(pixels[:, :, c]) for c in range(3)])
         if pixel_std < 5:  # Very low variance = likely single solid color
             return True
-            
+
         return False
     except Exception:
         # If we can't read the image, consider it invalid
         return True
-
-
-def navigate_resilient(page, url, nav_timeout_ms):
-    """Navigate to URL with resilient retry logic.
-    
-    Tries progressively stricter wait conditions, with retries and backoffs.
-    Handles various edge cases like client-side redirects and interstitials.
-    """
-    # Try the least strict first; escalate only if needed
-    waits = ["commit", "domcontentloaded", "load"]
-    last_exc = None
-    for attempt in range(3):
-        for w in waits:
-            try:
-                resp = page.goto(url, wait_until=w, timeout=nav_timeout_ms)
-                # Small settle to let async content paint without hanging forever.
-                page.wait_for_timeout(500)
-                return resp
-            except Exception as e:
-                last_exc = e
-        # Backoff & retry a reload of final URL (handles client-side redirects)
-        try:
-            page.reload(wait_until="domcontentloaded", timeout=nav_timeout_ms)
-            page.wait_for_timeout(500)
-            return None
-        except Exception as e:
-            last_exc = e
-            page.wait_for_timeout(750 * (attempt + 1))
-    # Give one last shot via JS redirect in case of weird interstitial
-    try:
-        page.evaluate(f"location.href = {repr(url)}")
-        page.wait_for_load_state("domcontentloaded", timeout=nav_timeout_ms)
-        page.wait_for_timeout(500)
-        return None
-    except Exception:
-        if last_exc:
-            raise last_exc
-        raise
 
 
 class BrowserWorker:
@@ -152,7 +115,7 @@ class BrowserWorker:
             return (url, None, error_msg)
 
     def _collect_one_internal(self, url: str) -> Dict[str, Any]:
-        """Internal collection logic - same as collector.py but reuses browser."""
+        """Internal collection logic for a single URL, reusing persistent browser."""
         cfg = self.cfg
         ensure_dir(cfg.out_dir)
         url_c = canonicalize_url(url)

@@ -6,8 +6,7 @@ This script benchmarks inference speed for VLM models (ScreenVLM, Qwen3-VL, Inte
 using VLLM and outputs a formatted table for paper ablation study.
 
 Usage:
-    cd /proj/docling-vision/users/said/webshot-dataset
-    PYTHONPATH=src .venv/bin/python scripts/benchmark_vlms.py
+    PYTHONPATH=src python scripts/benchmark_vlms.py --image-dir path/to/images
 
 Output:
     - Console table with latency (mean ± std) and throughput
@@ -70,16 +69,8 @@ class ModelConfig:
     gpu_memory_utilization: float = 0.9
 
 
-# Default models to benchmark
+# Default models to benchmark (HuggingFace model IDs)
 DEFAULT_MODELS = [
-    ModelConfig(
-        name="ScreenVLM",
-        model_id="/proj/docling-vision/users/said/nanoVLM/GraniteDoclingV1-stage1-init/nanoVLM_siglip2-base-patch16-512_2048_mp4_GraniteDoclingV1-stage1-init_16xGPU_full_ds_bs64_287500_lr_vision_0.002-language_0.002-0.0212_0109-164905_lsf361208/converted_untied/step_150000",
-        model_type="screenvlm",
-        revision="untied",
-        max_model_len=8192,
-        gpu_memory_utilization=0.9,
-    ),
     ModelConfig(
         name="Qwen3-VL-2B-Instruct",
         model_id="Qwen/Qwen3-VL-2B-Instruct",
@@ -508,7 +499,7 @@ def main():
     )
     parser.add_argument(
         "--image-dir",
-        default="/proj/docling-vision/users/said/data/yolo_filtered/images/test",
+        required=True,
         help="Directory containing sample images",
     )
     parser.add_argument(
@@ -531,7 +522,7 @@ def main():
     )
     parser.add_argument(
         "--output-dir", "-o",
-        default="/proj/docling-vision/users/said/webshot-dataset/benchmark_results",
+        default="benchmark_results",
         help="Output directory for results",
     )
     parser.add_argument(

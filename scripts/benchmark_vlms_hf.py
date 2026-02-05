@@ -38,22 +38,16 @@ class ModelConfig:
     torch_dtype: torch.dtype = torch.bfloat16
 
 
-# Default models to benchmark
+# Default models to benchmark (HuggingFace model IDs)
 DEFAULT_MODELS = [
     ModelConfig(
-        name="ScreenVLM",
-        model_id="/proj/docling-vision/users/said/nanoVLM/GraniteDoclingV1-stage1-init/nanoVLM_siglip2-base-patch16-512_2048_mp4_GraniteDoclingV1-stage1-init_16xGPU_full_ds_bs64_287500_lr_vision_0.002-language_0.002-0.0212_0109-164905_lsf361208/converted_untied/step_150000",
-        model_type="screenvlm",
-        revision="untied",
-    ),
-    ModelConfig(
-        name="Qwen3-VL-2B",
-        model_id="/proj/docling-vision/users/said/Qwen3-VL/qwen-vl-finetune/checkpoints/Qwen3-VL-2B-Instruct_8GPU_Full_272335/checkpoint-80000",
+        name="Qwen3-VL-2B-Instruct",
+        model_id="Qwen/Qwen3-VL-2B-Instruct",
         model_type="qwen3",
     ),
     ModelConfig(
         name="InternVL3-2B",
-        model_id="/proj/docling-vision/users/said/InternVL/InternVL/internvl_chat/work_dirs/internvl_sft/internvl3_2B_full_train_ScreenVLM_Prod_AnnotationV2_SynthDocs_512px-ibm-granite-lsf375632_8GPU/checkpoint-9200",
+        model_id="OpenGVLab/InternVL3-2B",
         model_type="internvl3",
     ),
 ]
@@ -487,7 +481,7 @@ def main():
     )
     parser.add_argument(
         "--image-dir",
-        default="/proj/docling-vision/users/said/data/yolo_filtered/images/test",
+        required=True,
         help="Directory containing sample images",
     )
     parser.add_argument(
@@ -510,7 +504,7 @@ def main():
     )
     parser.add_argument(
         "--output-dir", "-o",
-        default="/proj/docling-vision/users/said/webshot-dataset/benchmark_results",
+        default="benchmark_results",
         help="Output directory for results",
     )
     parser.add_argument(

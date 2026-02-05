@@ -4,6 +4,48 @@ from slugify import slugify
 from typing import List, Dict, Any, Optional, Tuple
 
 
+def navigate_resilient(page, url: str, nav_timeout_ms: int):
+    """Navigate to URL with resilient retry logic.
+
+    Tries progressively stricter wait conditions, with retries and backoffs.
+    Handles various edge cases like client-side redirects and interstitials.
+
+    Args:
+        page: Playwright page object
+        url: URL to navigate to
+        nav_timeout_ms: Navigation timeout in milliseconds
+
+    Returns:
+        Response object or None if navigation succeeded via fallback
+    """
+    waits = ["commit", "domcontentloaded", "load"]
+    last_exc = None
+    for attempt in range(3):
+        for w in waits:
+            try:
+                resp = page.goto(url, wait_until=w, timeout=nav_timeout_ms)
+                page.wait_for_timeout(500)
+                return resp
+            except Exception as e:
+                last_exc = e
+        try:
+            page.reload(wait_until="domcontentloaded", timeout=nav_timeout_ms)
+            page.wait_for_timeout(500)
+            return None
+        except Exception as e:
+            last_exc = e
+            page.wait_for_timeout(750 * (attempt + 1))
+    try:
+        page.evaluate(f"location.href = {repr(url)}")
+        page.wait_for_load_state("domcontentloaded", timeout=nav_timeout_ms)
+        page.wait_for_timeout(500)
+        return None
+    except Exception:
+        if last_exc:
+            raise last_exc
+        raise
+
+
 def stable_hash(s: str, length: int = 16) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()[:length]
 

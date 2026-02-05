@@ -1,20 +1,8 @@
 # training/predict_folder.py
-"""
+"""Run YOLO prediction on a folder of images.
 
-python scripts/predict.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
-    --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
-    --conf 0.05
-    
-python scripts/predict.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/omniparser_55c_ft/weights/best.pt \
-    --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
-    --conf 0.05
-    
-python scripts/predict.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/omniparser_55c_ft/weights/epoch6.pt \
-    --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
-    --conf 0.05
+Usage:
+    python scripts/predict.py --weights path/to/weights.pt --source path/to/images --conf 0.05
 """
 import random
 import argparse

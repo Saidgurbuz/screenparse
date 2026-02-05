@@ -4,7 +4,7 @@ from typing import Optional
 from .config import Config
 from .crawl import crawl
 from .visualize import visualize_one, VizOptions
-from .yolo_export import export_yolo_dataset  # NEW
+from .yolo_export import export_yolo_dataset
 from .utils import load_json, ensure_dir
 
 
@@ -708,7 +708,6 @@ def main():
     )
     py.set_defaults(func=cmd_yolo)
 
-    # pipeline (NEW)
     pp = sub.add_parser("pipeline", help="Run full pipeline (crawl + viz + yolo)")
     pp.add_argument("--urls", default="urls.csv", help="URLs CSV file")
     pp.add_argument("--out", default="data/raw", help="Raw output directory")

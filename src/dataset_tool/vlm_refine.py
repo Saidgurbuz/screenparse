@@ -191,10 +191,6 @@ class VLMConfig:
     max_model_len: int | None = None
     limit_mm_per_prompt: dict | None = None
     
-    # NEW: parallel CPU & multimodal tuning
-    # mm_encoder_tp_mode: str = "weights"    # "data" when TP > 1
-    # mm_processor_cache_gb: float = 0.0     # e.g. 4.0 to enable cache
-    # mm_processor_cache_type: str = "shm"  # let vLLM choose (e.g. "shm")
 
 class VLMEngine:
     """vLLM wrapper that uses the model's chat template for multimodal prompts."""
@@ -342,8 +338,6 @@ def label_dir(
     # Slice to this shard's subset
     bases = bases_all[shard_index::num_shards]
     
-    # # reverse the bases to iterate from end to start
-    # bases = list(reversed(bases))
 
     print(
         f"[VLM] Total bases: {len(bases_all)} | "
@@ -364,19 +358,6 @@ def label_dir(
     engine = VLMEngine(cfg)
 
     from .vlm_visualize import draw_vlm_overlay
-
-    # Clean old artifacts ONLY for this shard's bases
-    # if os.path.exists(crops_dir):
-    #     for f in glob.glob(os.path.join(crops_dir, "*.png")):
-    #         os.remove(f)
-    #     # keep existing JPEGs if you switched crops to JPEG; adjust pattern as needed
-    # if viz_dir and os.path.exists(viz_dir):
-    #     for f in glob.glob(os.path.join(viz_dir, "*.vlm.viz.jpg")):
-    #         os.remove(f)
-    # for base in bases:
-    #     p = base + out_suffix
-    #     if os.path.exists(p):
-    #         os.remove(p)
 
     _ensure_dir(crops_dir)
 

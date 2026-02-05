@@ -239,8 +239,8 @@ def is_protected(element: Dict[str, Any]) -> bool:
     """
     Check if element should be protected from filtering.
     Protected elements are important UI components that should not be removed.
-    
-    Based on the 55 canonical classes from vlm_refine.py.
+
+    Uses the module-level PROTECTED_TYPES constant based on the 55 canonical classes.
     """
     # Safely get values with None handling - use (value or "") pattern
     elem_type = (element.get("type") or "").lower()
@@ -248,72 +248,6 @@ def is_protected(element: Dict[str, Any]) -> bool:
     tag = (element.get("tag") or "").lower()
     classes = (element.get("classes") or "").lower()
     attrs = element.get("attrs") or {}
-
-    # Protected element types - based on canonical classes from vlm_refine.py
-    # These are interactive elements, important content, and UI components
-    PROTECTED_TYPES = {
-        # Interactive controls
-        "button",
-        "utility button",
-        "slider",
-        "picker",
-        "switch",
-        "toggles",
-        "steppers",
-        "checkbox",
-        "radiobox",
-        "select",
-        "text input",
-        "search field",
-        "search bar",
-        "date-time picker",
-        "rating indicator",
-        # Navigation elements
-        "navigation bar",
-        "tab bar",
-        "tab",
-        "side bar",
-        "breadcrumb",
-        "bottom navigation",
-        "page control",
-        "pagination",
-        "link",
-        "menu",
-        "contextmenu",
-        "dockmenu",
-        "editmenu",
-        "popup menu",
-        "toolbar",
-        # Content elements
-        "image",
-        "video",
-        "chart",
-        "table",
-        "list",
-        "list item",
-        "avatar",
-        "logo",
-        "code snippet",
-        "carousel",
-        "calendar",
-        "text",
-        "heading",
-        # Feedback/notification elements
-        "tooltip",
-        "alert",
-        "notification",
-        "badge",
-        "progress bar",
-        # Icons
-        "app icon",
-        "file icon",
-        # Legacy/backward compatibility
-        "input",
-        "dropdown",
-        "search",
-        "navigation",
-        "form",
-    }
 
     # Protected roles
     PROTECTED_ROLES = {
@@ -570,9 +504,6 @@ def filter_elements(
     if iou_threshold < 1.0:
         filtered = _remove_duplicates_iou(filtered, iou_threshold)
 
-    # Remove parent containers when child has same type
-    # consider to keep this filtering or not later on
-    # filtered = _remove_parent_containers(filtered, containment_threshold)
 
     # Remap hierarchy after all filtering is done
     # This ensures children of removed parents point to their nearest surviving ancestor

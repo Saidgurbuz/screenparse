@@ -2,11 +2,11 @@
 """
 Hierarchy-aware YOLO prediction for UI detection.
 
-Example:
-  python scripts/predict_hier.py \
-      --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui11/weights/best.pt \
-      --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
-      --conf 0.21
+Usage:
+    python scripts/predict_hier.py \
+        --weights path/to/weights.pt \
+        --source path/to/images \
+        --conf 0.21
 """
 
 import argparse

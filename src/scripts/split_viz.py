@@ -66,9 +66,9 @@ def main():
         description="Split .viz.jpg into Ground Truth and Prediction images for inspection/papers."
     )
     parser.add_argument(
-        "--eval_root", 
-        type=str, 
-        default="/proj/docling-vision/users/said/webshot-dataset/evaluation/m4-best+omniparser+step-46000+qwen3-vl-8b_n864_ds-gcua_map-gcua",
+        "--eval_root",
+        type=str,
+        required=True,
         help="Root directory containing one or more evaluation folders."
     )
     

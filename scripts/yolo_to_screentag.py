@@ -2,17 +2,17 @@
 """
 End-to-end pipeline: YOLO Inference -> OCR -> Hierarchy Reconstruction -> ScreenTag
 
-# Process a single image
-python scripts/yolo_to_screentag.py \
-    --weights path/to/best.pt \
-    --source path/to/image.png \
-    --output path/to/output.screentag.txt
+Usage:
+    # Process a single image
+    python scripts/yolo_to_screentag.py \
+        --weights path/to/best.pt \
+        --source path/to/image.png \
+        --output path/to/output.screentag.txt
 
-# Process a directory of images
-python scripts/yolo_to_screentag.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
-    --source /proj/docling-vision/users/said/webshot-dataset/all_images
-
+    # Process a directory of images
+    python scripts/yolo_to_screentag.py \
+        --weights path/to/weights.pt \
+        --source path/to/images
 """
 
 import sys
