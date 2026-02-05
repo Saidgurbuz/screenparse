@@ -1,9 +1,20 @@
 # training/predict_folder.py
 """
+
 python scripts/predict.py \
-    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels3/weights/best.pt \
+    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/webshot_ui_refined_labels_filtered/weights/best.pt \
     --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
-    --conf 0.17
+    --conf 0.05
+    
+python scripts/predict.py \
+    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/omniparser_55c_ft/weights/best.pt \
+    --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
+    --conf 0.05
+    
+python scripts/predict.py \
+    --weights /proj/docling-vision/users/said/webshot-dataset/runs/detect/omniparser_55c_ft/weights/epoch6.pt \
+    --source /proj/docling-vision/users/said/webshot-dataset/real_ss \
+    --conf 0.05
 """
 import random
 import argparse
@@ -24,8 +35,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weights", required=True)
     ap.add_argument("--source", default="images/val")
-    ap.add_argument("--imgsz", type=int, default=1440)
-    ap.add_argument("--conf", type=float, default=0.25)
+    ap.add_argument("--imgsz", type=int, default=1280)
+    ap.add_argument("--conf", type=float, default=0.10)
+    ap.add_argument("--iou", type=float, default=0.01)
     ap.add_argument("--project", type=str, default="viz/preds")
     ap.add_argument("--name", type=str, default=None)
     ap.add_argument("--device", type=str, default=None)
@@ -38,9 +50,11 @@ def main():
     # Generate dynamic name if not provided
     if args.name is None:
         weights_path = Path(args.weights)
+        source_path = Path(args.source)
         parent_folder = weights_path.parent.parent.name  # Gets parent of 'weights' folder
+        source_name = source_path.name # Gets the name of the input folder
         conf_str = str(args.conf).replace('.', '')  # Remove decimal point
-        args.name = f"run_{parent_folder}_c{conf_str}_imgsz{args.imgsz}_md{args.max_det}"
+        args.name = f"run_{parent_folder}_{source_name}_c{conf_str}_imgsz{args.imgsz}_md{args.max_det}"
 
     dev = args.device or auto_device()
     model = YOLO(args.weights)
@@ -68,6 +82,7 @@ def main():
         batch=1,
         imgsz=args.imgsz,
         conf=args.conf,
+        iou=args.iou,
         save=True,
         save_txt=True,
         save_conf=True,

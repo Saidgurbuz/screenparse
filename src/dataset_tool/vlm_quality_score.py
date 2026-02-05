@@ -1,69 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-VLM-driven annotation quality scoring (Qwen3-VL via vLLM).
+VLM-driven annotation quality scoring using Qwen3-VL via vLLM.
 
 This module scores the quality of UI bounding box annotations by analyzing
 visualization images (screenshots with overlaid bounding boxes and labels).
+It evaluates coverage, false positives, duplication, and box precision to
+filter low-quality annotations from the dataset.
 
-Usage examples:
----------------
-
-# Basic usage
-wsd vlm-score \
-  --viz-dir ../data/viz \
-  --threshold 50 \
-  --output ../data/stats/filtered_low_quality.txt \
-  --scores-json ../data/stats/all_scores.json
-
-# Multi-GPU with tensor parallelism
-wsd vlm-score \
-  --viz-dir ../data/viz \
-  --tp 2 \
-  --batch-size 64 \
-  --threshold 60 \
-  --output filtered.txt
-
-# Sharded across 8 GPUs
-CUDA_VISIBLE_DEVICES=0 wsd vlm-score \
-  --viz-dir ../data/viz \
-  --num-shards 8 --shard-index 0 \
-  --output ../data/stats/filtered_shard0.txt \
-  > logs/score_shard0.log 2>&1 &
-
-
-## smoke test on a few visualizations
-wsd vlm-score \
-  --viz-dir ../data/viz \
-  --limit 50 \
-  --batch-size 32 \
-  --model Qwen/Qwen3-VL-8B-Instruct \
-  --threshold 50 \
-  --output ../data/stats/filtered_samples.txt
-
-## full run with tp=2 across two GPUs
-wsd vlm-score \
-  --viz-dir ../data/viz \
-  --batch-size 64 \
-  --tp 2 \
-  --model Qwen/Qwen3-VL-8B-Instruct \
-  --threshold 60 \
-  --output ../data/stats/filtered_low_quality.txt \
-  --scores-json ../data/stats/all_scores.json
-
-## multi-gpu sharded example (8 GPUs, each handling 1/8th of the data)
-CUDA_VISIBLE_DEVICES=0 wsd vlm-score \
-  --viz-dir ../data/viz \
-  --model Qwen/Qwen3-VL-8B-Instruct \
-  --batch-size 256 \
-  --tp 1 \
-  --num-shards 8 \
-  --shard-index 0 \
-  --threshold 50 \
-  --output ../data/stats/filtered_shard0.txt \
-  --scores-json ../data/stats/scores_shard0.json \
-  > logs/score_shard0.log 2>&1 &
-
-# ... repeat for shards 1-7 with CUDA_VISIBLE_DEVICES=1..7
+For usage examples, see examples/vlm_refinement_example.sh
 """
 from __future__ import annotations
 

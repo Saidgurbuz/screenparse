@@ -122,7 +122,7 @@ class ScreenVLMRunner(ModelRunner):
         os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 
         self.prompt = prompt
-        self.processor = AutoProcessor.from_pretrained(checkpoint)
+        self.processor = AutoProcessor.from_pretrained(checkpoint, trust_remote_code=True)
         self.sampling_params = SamplingParams(
             temperature=temperature,
             top_p=top_p,
@@ -134,6 +134,7 @@ class ScreenVLMRunner(ModelRunner):
             model=checkpoint,
             revision="untied",
             limit_mm_per_prompt={"image": 1},
+            trust_remote_code=True,
         )
 
     def _build_prompt(self) -> str:

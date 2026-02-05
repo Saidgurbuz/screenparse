@@ -10,6 +10,7 @@ from .datasets import serialize_elements
 from .metrics.base import Metric
 from .models.base import ModelRunner
 from .types import EvaluationSample, MetricResult, SampleResult, UIElement
+from .viz import VizConfig, save_viz
 
 
 class Evaluator:
@@ -27,49 +28,7 @@ class Evaluator:
             json.dump(serialize_elements(preds), f, indent=2)
 
     def _write_viz(self, out_dir: Path, sample: EvaluationSample, preds: Sequence[UIElement]):
-        try:
-            from PIL import Image, ImageDraw, ImageFont
-        except Exception:
-            return
-
-        try:
-            img = Image.open(sample.image_path).convert("RGB")
-        except Exception:
-            return
-
-        def _draw_elements(base: Image.Image, elements: Sequence[UIElement], color: tuple):
-            draw = ImageDraw.Draw(base)
-            font = ImageFont.load_default()
-            for el in elements:
-                x1, y1, x2, y2 = el.bbox.to_ltrb()
-                x1 = max(0, min(int(x1), base.width - 1))
-                y1 = max(0, min(int(y1), base.height - 1))
-                x2 = max(0, min(int(x2), base.width - 1))
-                y2 = max(0, min(int(y2), base.height - 1))
-                if x2 <= x1 or y2 <= y1:
-                    continue
-                draw.rectangle([x1, y1, x2, y2], outline=color, width=2)
-                label = (el.label or "").strip()
-                if label:
-                    label = label[:40]
-                    text_bbox = draw.textbbox((x1, y1), label, font=font)
-                    draw.rectangle(text_bbox, fill=color)
-                    draw.text((x1, y1), label, fill="white", font=font)
-
-        gt_img = img.copy()
-        pred_img = img.copy()
-        _draw_elements(gt_img, sample.ground_truth, (0, 160, 0))
-        _draw_elements(pred_img, preds, (200, 30, 30))
-
-        combined = Image.new("RGB", (img.width * 2, img.height), (255, 255, 255))
-        combined.paste(gt_img, (0, 0))
-        combined.paste(pred_img, (img.width, 0))
-
-        viz_dir = out_dir / "viz"
-        viz_dir.mkdir(parents=True, exist_ok=True)
-        stem = sample.sample_id or Path(sample.image_path).stem
-        out_path = viz_dir / f"{stem}.viz.jpg"
-        combined.save(out_path, quality=90)
+        save_viz(out_dir, sample, preds, VizConfig())
 
     def evaluate_model(
         self,

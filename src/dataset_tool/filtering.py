@@ -532,8 +532,10 @@ def filter_elements(
         if (w * h < min_box_size) and not is_protected(el):
             continue
 
-        # Skip overly large boxes (but allow protected elements)
-        if (w * h > max_box_size) and not is_protected(el):
+
+        element_type = (el.get("type") or "").lower()
+        # Skip overly large boxes (but allow image elements)
+        if (w * h > max_box_size) and not (element_type == "image"):
             continue
 
         # Skip boxes mostly outside viewport
@@ -549,6 +551,13 @@ def filter_elements(
         visible_area = visible_w * visible_h
         total_area = w * h
         if total_area > 0 and visible_area / total_area < 0.01:
+            continue
+
+        
+        # get the tag
+        tag = (el.get("tag") or "").lower()
+        # if tag is path, skip
+        if tag == "path":
             continue
 
         # Skip hidden elements

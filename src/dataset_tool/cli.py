@@ -690,9 +690,9 @@ def main():
     py = sub.add_parser("yolo", help="Export dataset to YOLO format")
     py.add_argument("--raw-dir", default="data/raw", help="Raw data directory")
     py.add_argument("--yolo-dir", default="data/yolo", help="YOLO output directory")
-    py.add_argument("--train-ratio", type=float, default=0.7, help="Train split ratio")
-    py.add_argument("--val-ratio", type=float, default=0.2, help="Val split ratio")
-    py.add_argument("--test-ratio", type=float, default=0.1, help="Test split ratio")
+    py.add_argument("--train-ratio", type=float, default=0.9, help="Train split ratio")
+    py.add_argument("--val-ratio", type=float, default=0.05, help="Val split ratio")
+    py.add_argument("--test-ratio", type=float, default=0.05, help="Test split ratio")
     py.add_argument("--seed", type=int, default=42, help="Random seed for splits")
     py.add_argument(
         "--export-workers",

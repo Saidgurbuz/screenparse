@@ -1,67 +1,114 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
-.venv
-data/
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
-.venv
-
-# Distribution / packaging
 build/
 dist/
 *.egg-info/
 .eggs/
+wheels/
+old_data/
+raw/
+output_old/
 
-# Data directories
+# Virtual environments
+.venv/
+.venv-*/
+env/
+venv/
+ENV/
+
+# Data directories and outputs
 data/
+output/
+runs/
+logs/
+viz/
+evaluation/
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.onnx
+*.torchscript
+
+# Data files
 *.png
 *.jpg
 *.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
 *.json
 *.jsonl
-*.txt
-!requirements.txt
-!README.md
+*.csv
+*.parquet
+*.arrow
 
-# IDE
+# Documents (except documentation)
+*.pdf
+*.doc
+*.docx
+
+# Scripts and notebooks
+*.sh
+*.ipynb
+bash_scripts/
+
+# Configuration overrides (keep templates)
+configs/
+!configs/example_*.yaml
+!configs/README.md
+
+# URL lists (keep examples)
+urls/
+*.urls.txt
+!examples/
+
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+*.swn
 .DS_Store
+*~
 
 # Playwright
 playwright-state/
+.playwright/
 
-# Logs
-*.log
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
 .lsbatch/
-configs/
-runs/
-viz/
-real_ss/
-old_data/
-urls/
-*.sh
-*.pdf
+
+# OS files
+Thumbs.db
+desktop.ini
+
+# Keep important text files
+!README.md
+!LICENSE
+!CONTRIBUTING.md
+!requirements.txt
+!pyproject.toml
+!USAGE.md
+!src/evaluation/
+
+# Keep example files
+!examples/**
+CLAUDE.md
+*coco.yml
 *.csv
-*.pt
-*.ipynb
-bash_scripts
-./evaluation*
-output

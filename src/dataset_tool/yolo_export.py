@@ -416,6 +416,22 @@ def _scan_records(raw_dir: str) -> Iterable[Dict[str, str]]:
     Streaming, single-pass directory scan using os.scandir (fast, low memory).
     Yields dicts with paths for each valid record (meta+image+elements present).
     """
+    # Load filtered stems
+    filtered_stems = set()
+    filter_file = "/proj/docling-vision/users/said/data/stats/filtered_low_quality.txt"
+    if os.path.exists(filter_file):
+        with open(filter_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                # Extract stem from path like: ../data/viz/stem.viz.jpg
+                # The stem is the filename without .viz.jpg
+                filename = os.path.basename(line)
+                if filename.endswith(".viz.jpg"):
+                    stem = filename[:-8]  # remove '.viz.jpg'
+                    filtered_stems.add(stem)
+
     # Expect files side-by-side: <stem>.meta.json, <stem>.png, <stem>.elements.json
     with os.scandir(raw_dir) as it:
         for entry in it:
@@ -423,6 +439,10 @@ def _scan_records(raw_dir: str) -> Iterable[Dict[str, str]]:
             if not name.endswith(".meta.json"):
                 continue
             stem = name[:-10]  # remove '.meta.json'
+
+            if stem in filtered_stems:
+                continue
+
             img_path = os.path.join(raw_dir, f"{stem}.png")
             elements_path = os.path.join(raw_dir, f"{stem}.elements.json")
             meta_path = os.path.join(raw_dir, name)

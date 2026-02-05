@@ -5,6 +5,13 @@ import os, math, random
 from PIL import Image, ImageDraw, ImageFont
 from .utils import load_json, ensure_dir
 from .config import Config
+from docling_ibm_models.reading_order.reading_order_rb import (
+    PageElement,
+    ReadingOrderPredictor,
+    DocItemLabel,
+    Size,
+)
+from docling_core.types.doc.base import CoordOrigin
 
 
 # Fallback font (macOS has HelveticaNeue/Arial; PIL default also OK)
@@ -173,3 +180,262 @@ def visualize_record(
     out_path = os.path.join(cfg.viz_dir, f"{stem}.viz.jpg")
     visualize_one(img, elements, texts, ocr, out_path, opts)
     return out_path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reading order visualization
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _center_of_rect(rect: Dict[str, int]) -> tuple[float, float]:
+    return (
+        rect["x"] + rect["w"] / 2.0,
+        rect["y"] + rect["h"] / 2.0,
+    )
+
+
+def _sort_key(rect: Dict[str, int]):
+    return (rect["y"], rect["x"], rect["h"], rect["w"])
+
+
+def _build_reading_order(elements: List[Dict[str, Any]], page_size: Size) -> List[int]:
+    """
+    Build a reading-order traversal (preorder DFS).
+
+    Preference order for hierarchy fields:
+      1) parent_index / children_indices (reconstructed hierarchy)
+      2) _parent_dom_index (raw DOM parent captured during crawl)
+    Falls back to spatial ordering if hierarchy is missing/invalid.
+    """
+
+    n = len(elements)
+    if n == 0:
+        return []
+
+    children: Dict[int, List[int]] = {i: [] for i in range(n)}
+    roots: List[int] = []
+
+    # Prefer reconstructed hierarchy if present
+    has_parent_index = any("parent_index" in el for el in elements)
+
+    for idx, el in enumerate(elements):
+        parent = None
+        if has_parent_index:
+            p = el.get("parent_index")
+            if isinstance(p, int) and 0 <= p < n and p != idx:
+                parent = p
+
+        if parent is not None:
+            children[parent].append(idx)
+        else:
+            roots.append(idx)
+
+    # If no roots detected (bad parents), fall back to all indices
+    if not roots:
+        roots = list(range(n))
+
+    # Use ReadingOrderPredictor to sort siblings
+    def _predict_order(indices: List[int]) -> List[int]:
+        if not indices:
+            return []
+        
+        # Use the actual image dimensions provided by visualize_reading_order
+        max_w = float(page_size.width)
+        max_h = float(page_size.height)
+        if max_w <= 0:
+            max_w = 100.0
+        if max_h <= 0:
+            max_h = 100.0
+        
+        page_elems = []
+        local_map = {} # local_idx -> original_idx
+        
+        for i, idx in enumerate(indices):
+            local_map[i] = idx
+            el = elements[idx]
+            r = el["rect"]
+            
+            # Use default label as placeholder
+            label = DocItemLabel.TEXT
+            
+            # Convert to Bottom-Left origin manually to avoid BoundingBox conversion issue
+            # In TL: y=0 is top. t < b.
+            # In BL: y=0 is bottom. t > b.
+            t_tl = r["y"]
+            b_tl = r["y"] + r["h"]
+            
+            t_bl = float(max_h) - t_tl
+            b_bl = float(max_h) - b_tl
+            
+            pe = PageElement(
+                cid=i,
+                label=label,
+                page_no=1,
+                page_size=page_size,
+                text=el.get("inner_text", ""),
+                l=r["x"],
+                t=t_bl,
+                r=r["x"]+r["w"],
+                b=b_bl,
+                coord_origin=CoordOrigin.BOTTOMLEFT
+            )
+            page_elems.append(pe)
+            
+        predictor = ReadingOrderPredictor()
+        # Predict order
+        sorted_pe = predictor.predict_reading_order(page_elems)
+        
+        return [local_map[pe.cid] for pe in sorted_pe]
+
+    roots = _predict_order(roots)
+    for k in children:
+        children[k] = _predict_order(children[k])
+
+    order: List[int] = []
+    visited = set()
+
+    def is_in_viewport(r: Dict[str, int]) -> bool:
+        return (
+            r["x"] >= 0
+            and r["y"] >= 0
+            and r["x"] + r["w"] <= page_size.width
+            and r["y"] + r["h"] <= page_size.height
+        )
+
+    def dfs(i: int):
+        if i in visited:
+            return  # guard against accidental cycles
+        visited.add(i)
+        
+        if is_in_viewport(elements[i]["rect"]):
+            order.append(i)
+
+        for c in children.get(i, []):
+            dfs(c)
+
+    for r in roots:
+        dfs(r)
+
+    # Repair any missing nodes
+    if len(visited) != n:
+        remaining = [i for i in range(n) if i not in visited]
+        # Only include remaining nodes if they are in viewport
+        remaining = [i for i in remaining if is_in_viewport(elements[i]["rect"])]
+        order.extend(_predict_order(remaining))
+
+    return order
+
+
+def _draw_arrow(draw: ImageDraw.ImageDraw, p0: tuple[float, float], p1: tuple[float, float], color: tuple, width: int = 2):
+    draw.line((p0[0], p0[1], p1[0], p1[1]), fill=color, width=width)
+    # Arrow head
+    angle = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+    head_len = 8 + width  # scale with width a bit
+    head_angle = math.radians(24)
+    left = (
+        p1[0] - head_len * math.cos(angle - head_angle),
+        p1[1] - head_len * math.sin(angle - head_angle),
+    )
+    right = (
+        p1[0] - head_len * math.cos(angle + head_angle),
+        p1[1] - head_len * math.sin(angle + head_angle),
+    )
+    draw.polygon([p1, left, right], fill=color)
+
+
+def visualize_reading_order(
+    image_path: str,
+    elements_path: str,
+    out_path: str,
+    min_box_area: int = 9,
+    leaf_only: bool = True,
+):
+    """Draw reading order (preorder traversal) over the screenshot.
+
+    Saves an image with numbered boxes and arrows connecting the order.
+    """
+
+    if not (os.path.exists(image_path) and os.path.exists(elements_path)):
+        return
+
+    elems: List[Dict[str, Any]] = load_json(elements_path)
+    if not elems:
+        return
+
+    im = Image.open(image_path).convert("RGBA")
+    page_size = Size(width=im.width, height=im.height)
+
+    order = _build_reading_order(elems, page_size)
+    if not order:
+        return
+
+    # Identify leaves if needed
+    is_leaf = [True] * len(elems)
+    if leaf_only:
+        has_parent_index = any("parent_index" in el for el in elems)
+        if has_parent_index:
+            for idx, el in enumerate(elems):
+                p = el.get("parent_index")
+                if isinstance(p, int) and 0 <= p < len(elems) and p != idx:
+                    is_leaf[p] = False
+
+    overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    font = _load_font(13)
+
+    # Periodic color palette for boxes and labels
+    palette = [
+        (255, 0, 0),    # Red
+        (0, 128, 0),    # Green
+        (0, 0, 255),    # Blue
+        (255, 140, 0),  # Dark Orange
+        (128, 0, 128),  # Purple
+        (0, 191, 255),  # Deep Sky Blue
+        (255, 0, 255),  # Magenta
+        (139, 69, 19),  # Saddle Brown
+        (46, 139, 87),  # Sea Green
+        (75, 0, 130),   # Indigo
+    ]
+
+    color_arrow = (220, 40, 60)  # bright red arrows
+    line_width = 2
+    centers: List[Optional[tuple[float, float]]] = []
+
+    drawn_idx = 0
+    for idx, el_idx in enumerate(order):
+        if leaf_only and not is_leaf[el_idx]:
+            continue
+
+        el = elems[el_idx]
+        r = el["rect"]
+        if _should_skip(r, min_box_area):
+            centers.append(None)
+            continue
+        
+        drawn_idx += 1
+        color = palette[(drawn_idx - 1) % len(palette)]
+        x1, y1, x2, y2 = _rect_to_xyxy(r)
+        
+        # Draw box outline
+        draw.rectangle((x1, y1, x2, y2), outline=color, width=line_width)
+        
+        # Draw index label at top-left
+        _draw_label(draw, (x1 + 1, max(0, y1 - 18)), str(drawn_idx), color, font)
+        # print the raw element by drawn_idx
+        print(f"Drawn_idx {drawn_idx}: {el}")
+    
+        centers.append(_center_of_rect(r))
+
+    # Draw arrows along the centers of valid boxes
+    prev_center = None
+    for c in centers:
+        if c is None:
+            continue
+        if prev_center is not None:
+            _draw_arrow(draw, prev_center, c, color_arrow, width=line_width)
+        prev_center = c
+
+    out = Image.alpha_composite(im, overlay).convert("RGB")
+    ensure_dir(os.path.dirname(out_path))
+    out.save(out_path, quality=95)
+
+

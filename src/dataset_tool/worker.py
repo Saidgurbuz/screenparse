@@ -204,7 +204,7 @@ class BrowserWorker:
                 page.wait_for_timeout(200)
             else:
                 page.evaluate("window.scrollTo(0, 0)")
-                page.wait_for_timeout(200)
+                page.wait_for_timeout(2000)
 
             viewport_width = cfg.viewport.width
             viewport_height = cfg.viewport.height
@@ -626,6 +626,17 @@ class BrowserWorker:
 
                     for row in triplets:
                         f.write(_json.dumps(row, ensure_ascii=False) + "\n")
+
+            # Reading order visualization
+            try:
+                from .visualize import visualize_reading_order
+
+                ro_path = f"{base}_readingorder.png"
+                visualize_reading_order(img_path, record["elements_path"], ro_path)
+                record["reading_order_path"] = ro_path
+            except Exception as e:
+                print(f"[Worker {self.worker_id}] Failed to generate reading order visualization: {e}")
+                pass
 
             return record
 

@@ -22,3 +22,4 @@ package = true
 [project.scripts]
 wsd = "dataset_tool.cli:main"
 wsd-urls = "scripts.generate_urls:main"
+wsd-eval = "evaluation.cli:main"

@@ -19,7 +19,7 @@ class FilterConfig:
     # Minimum box size in pixels
     min_box_size: int = 4  # Very permissive
     # Maximum box size in pixels
-    max_box_size: int = 15000  # Very permissive
+    max_box_size: int = (Viewport.width * Viewport.height) // 2  # Half of viewport area
     # Minimum fraction of box that must be visible in viewport
     min_viewport_overlap: float = 0.01  # Nearly anything visible counts
     # Save unfiltered elements for debugging
