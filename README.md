@@ -138,7 +138,7 @@ See [USAGE.md](USAGE.md) for the complete taxonomy.
 ## Supported Models
 
 The evaluation framework supports:
-- **Detection models**: YOLOv8, RT-DETR, OmniParser
+- **Detection models**: YOLOv11, RT-DETRv2, OmniParser
 - **Vision-language models**: Qwen3-VL, InternVL3, Gemini, ScreenVLM
 
 ## Documentation
