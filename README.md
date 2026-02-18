@@ -1,6 +1,6 @@
 # Webshot: Scalable Dataset Generation for Complete Screen Parsing
 
-This repository contains **Webshot**, the automated dataset generation pipeline for [ScreenParse](https://arxiv.org/abs/XXXX.XXXXX), introduced in:
+This repository contains **Webshot**, the automated dataset generation pipeline for [ScreenParse](https://arxiv.org/pdf/2602.14276), introduced in:
 
 > **Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision**
 > *International Conference on Machine Learning (ICML) 2026*
@@ -150,11 +150,14 @@ The evaluation framework supports:
 ## Citation
 
 ```bibtex
-@inproceedings{screenparse2026,
-  title={Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision},
-  author={...},
-  booktitle={International Conference on Machine Learning (ICML)},
-  year={2026}
+@misc{gurbuz2026movingsparsegroundingcomplete,
+      title={Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision},
+      author={A. Said Gurbuz and Sunghwan Hong and Ahmed Nassar and Marc Pollefeys and Peter Staar},
+      year={2026},
+      eprint={2602.14276},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2602.14276},
 }
 ```
 
