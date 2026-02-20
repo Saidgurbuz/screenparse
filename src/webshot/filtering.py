@@ -472,6 +472,70 @@ _TEXT_SEMANTIC_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "dt", "dd"
 _MIN_OWN_TEXT_LEN = 15  # characters
 
 
+def get_leaf_elements(
+    filtered: List[Dict[str, Any]],
+    original_elements: List[Dict[str, Any]],
+    min_own_text: int = _MIN_OWN_TEXT_LEN,
+) -> List[Dict[str, Any]]:
+    """
+    Extract the leaf-level coverage set from the filtered element list.
+
+    Returns a flat, reading-order-sorted list that together provides complete
+    UI coverage without redundant containers:
+
+    - **True leaves**: elements with no children in the filtered hierarchy
+      (buttons, links, images, icons, inputs, plain text nodes, …).
+    - **Mixed-content text blocks**: elements that *do* have children but also
+      carry their own direct text (prose text interspersed with inline links).
+      Example: ``<p>Intro, see <a>link</a> and <a>link</a> for more.</p>``
+      Their children are already included as leaves, but the surrounding prose
+      text is only represented by the parent element.
+
+    The list is sorted by ``reading_order_index`` (annotated in-place by the
+    worker before saving), giving a flat sequence suitable for basic screen
+    parsing, text extraction, or a leaf-only reading-order visualization.
+    """
+    original_by_dom: Dict[int, Dict[str, Any]] = {
+        el["_dom_index"]: el
+        for el in original_elements
+        if el.get("_dom_index") is not None
+    }
+
+    leaf_elements: List[Dict[str, Any]] = []
+
+    for el in filtered:
+        children = el.get("children_indices") or []
+
+        if not children:
+            # True leaf: no children in the filtered hierarchy.
+            leaf_elements.append(el)
+            continue
+
+        # Has children — include only if it contributes its own text content.
+        child_dom_indices: List[int] = el.get("_children_dom_indices") or []
+        inner_text = (el.get("inner_text") or "").strip()
+        if not inner_text:
+            continue
+
+        own_text = inner_text
+        for cdom in child_dom_indices:
+            child = original_by_dom.get(cdom)
+            if child:
+                ct = (child.get("inner_text") or "").strip()
+                if ct:
+                    own_text = own_text.replace(ct, "", 1)
+        own_text = own_text.strip()
+
+        if len(own_text) >= min_own_text:
+            leaf_elements.append(el)
+
+    # Sort by reading order already annotated by the worker.
+    # Elements without the annotation (shouldn't normally happen) go last.
+    leaf_elements.sort(key=lambda e: e.get("reading_order_index", float("inf")))
+
+    return leaf_elements
+
+
 def _recover_mixed_content_text(
     filtered: List[Dict[str, Any]],
     original_elements: List[Dict[str, Any]],
@@ -562,6 +626,77 @@ def _recover_mixed_content_text(
     return remap_hierarchy_after_filtering(original_elements, merged)
 
 
+def _is_positional_orphan(
+    element: Dict[str, Any],
+    original_by_dom: Dict[int, Dict[str, Any]],
+    tolerance: int = 5,
+) -> bool:
+    """
+    Detect elements positioned completely outside their ancestor hierarchy's
+    effective horizontal bounds — "carousel ghost" elements.
+
+    These appear in sites that use horizontally-scrollable card decks / sliders
+    where inactive cards are positioned to the right of the active slot via CSS
+    absolute-positioning or transforms.  The cards are NOT clipped by
+    overflow:hidden on their container (the JS isVisible check only blocks
+    elements completely outside an overflow:hidden ancestor), so they pass DOM
+    visibility but are invisible in the screenshot.
+
+    Pattern (NYTimes reporter-thread-carddeck):
+      <div slot  x=120 w=291>         ← the visible "slot"
+        <div track x=451 w=291>       ← card 2's wrapper, moved to the right
+          <a   card x=451 w=291>      ← the ghost element (outside slot)
+            <div name x=501 w=84>     ← also ghost (nested inside ghost card)
+
+    Algorithm — running x-intersection:
+      Maintain the element's effective visible x-range starting as [el_x, el_x2].
+      Walk up the _parent_dom_index chain.  For each ancestor at least as wide
+      as the element (narrower ancestors are skipped — e.g. a tooltip is wider
+      than its trigger button, and the containing ancestor is further up):
+        • Intersect the running range with the ancestor's x-range.
+        • If the intersection becomes empty → the element is outside that
+          ancestor → positional orphan.
+      This naturally catches nested ghosts (e.g. a name label inside a ghost
+      card) without requiring special-casing.
+    """
+    el_rect = element["rect"]
+    el_w = el_rect["w"]
+
+    # Running visible x-interval; narrows as we walk up the ancestor chain.
+    vis_x = el_rect["x"]
+    vis_x2 = vis_x + el_w
+
+    dom = element.get("_parent_dom_index")
+    for _ in range(12):
+        if dom is None:
+            break
+        ancestor = original_by_dom.get(dom)
+        if not ancestor:
+            break
+        anc_rect = ancestor["rect"]
+        anc_w = anc_rect["w"]
+        anc_x = anc_rect["x"]
+        anc_x2 = anc_x + anc_w
+
+        # Skip ancestors narrower than the element — they cannot meaningfully
+        # clip it (e.g. a tooltip wider than its trigger button).
+        if anc_w < el_w - tolerance:
+            dom = ancestor.get("_parent_dom_index")
+            continue
+
+        # Intersect running range with this ancestor's x-range.
+        vis_x = max(vis_x, anc_x)
+        vis_x2 = min(vis_x2, anc_x2)
+
+        if vis_x2 <= vis_x:
+            # Intersection is empty → element lies outside this ancestor.
+            return True
+
+        dom = ancestor.get("_parent_dom_index")
+
+    return False
+
+
 def filter_elements(
     elements: List[Dict[str, Any]],
     viewport_w: int,
@@ -594,6 +729,13 @@ def filter_elements(
 
     # Keep reference to original elements for hierarchy remapping
     original_elements = elements
+
+    # Fast lookup by DOM index — needed for positional-orphan detection
+    original_by_dom: Dict[int, Dict[str, Any]] = {
+        el["_dom_index"]: el
+        for el in original_elements
+        if el.get("_dom_index") is not None
+    }
 
     filtered = []
 
@@ -650,6 +792,11 @@ def filter_elements(
 
         # Skip hidden elements
         if (el.get("aria_hidden") or "").lower() == "true":
+            continue
+
+        # Skip carousel/slider ghost cards: elements positioned completely
+        # outside their nearest meaningful DOM ancestor's horizontal bounds.
+        if _is_positional_orphan(el, original_by_dom):
             continue
 
         filtered.append(el)

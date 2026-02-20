@@ -620,10 +620,14 @@ class BrowserWorker:
                     pass
 
             # Filter elements
-            from .filtering import filter_elements, analyze_filtering_impact
+            from .filtering import filter_elements, analyze_filtering_impact, get_leaf_elements
+
+            # Keep reference to unfiltered elements — needed later for leaf extraction
+            # and mixed-content text recovery (both require the original DOM structure).
+            unfiltered_elements = all_elements
 
             if cfg.filter_config.save_unfiltered:
-                save_json(f"{base}.elements.unfiltered.json", all_elements)
+                save_json(f"{base}.elements.unfiltered.json", unfiltered_elements)
 
             filtered_elements = filter_elements(
                 all_elements,
@@ -773,8 +777,16 @@ class BrowserWorker:
             # Elements stay in their filtered order so hierarchy indices remain valid
             ordered_elements = all_elements
 
+            # Compute leaf coverage set: true leaves + mixed-content text blocks.
+            # reading_order_index must already be annotated above before this call.
+            leaf_elements = get_leaf_elements(ordered_elements, unfiltered_elements)
+
             save_json(record["meta_path"], meta)
             save_json(record["elements_path"], ordered_elements)
+
+            leaf_path = f"{base}.elements.leaf.json"
+            save_json(leaf_path, leaf_elements)
+            record["leaf_elements_path"] = leaf_path
             save_json(record["texts_path"], all_texts)
             save_json(record["ax_path"], ax_tree)
 
@@ -843,7 +855,7 @@ class BrowserWorker:
 
             # Reading order visualization (two files: leaf-only and all-elements)
             try:
-                from .visualize import visualize_reading_order
+                from .visualize import visualize_reading_order, visualize_reading_order_flat
                 import os as _os
 
                 ro_path = f"{base}_readingorder.png"
@@ -853,6 +865,12 @@ class BrowserWorker:
                 ro_all_path = ro_path.replace("_readingorder.png", "_readingorder_all.png")
                 if _os.path.exists(ro_all_path):
                     record["reading_order_all_path"] = ro_all_path
+
+                # Leaf reading order: flat list sorted by reading_order_index,
+                # covering all visible UI without containers.
+                ro_leaf_path = f"{base}_readingorder_leaf.png"
+                visualize_reading_order_flat(img_path, record["leaf_elements_path"], ro_leaf_path)
+                record["reading_order_leaf_path"] = ro_leaf_path
             except Exception as e:
                 print(f"[Worker {self.worker_id}] Failed to generate reading order visualization: {e}")
                 pass

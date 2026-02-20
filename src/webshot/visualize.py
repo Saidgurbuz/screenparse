@@ -401,6 +401,45 @@ def _render_reading_order_image(
     return Image.alpha_composite(im, overlay).convert("RGB")
 
 
+def visualize_reading_order_flat(
+    image_path: str,
+    elements_path: str,
+    out_path: str,
+    min_box_area: int = 9,
+):
+    """Draw a reading-order visualization for a flat, pre-ordered element list.
+
+    Unlike :func:`visualize_reading_order`, this does **not** re-compute the
+    reading order from the element hierarchy.  Instead it uses the
+    ``reading_order_index`` field already annotated on each element, producing
+    a stable, correctly-ordered rendering even when the elements have no
+    meaningful parent/child relationships (e.g. the leaf coverage set).
+
+    Saves a single image at *out_path*.
+    """
+    if not (os.path.exists(image_path) and os.path.exists(elements_path)):
+        return
+
+    elems: List[Dict[str, Any]] = load_json(elements_path)
+    if not elems:
+        return
+
+    # Order by reading_order_index; fall back to list position for any element
+    # that lacks the annotation.
+    order = sorted(
+        range(len(elems)),
+        key=lambda i: elems[i].get("reading_order_index", i),
+    )
+
+    im = Image.open(image_path).convert("RGBA")
+    ensure_dir(os.path.dirname(out_path))
+
+    result = _render_reading_order_image(
+        im, elems, order, leaf_only=False, min_box_area=min_box_area
+    )
+    result.save(out_path, quality=95)
+
+
 def visualize_reading_order(
     image_path: str,
     elements_path: str,
