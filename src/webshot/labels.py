@@ -1,6 +1,19 @@
 """Element type classification for UI elements."""
 
+import re
 from typing import Dict, Any, Optional
+
+_AD_PATTERN = re.compile(
+    r'\b(ad|ads|advert|advertisement|adunit|ad-unit|ad_unit|'
+    r'sponsor|sponsored|promo|dfp|gpt-ad|doubleclick|'
+    r'adsense|adsbygoogle|ad-slot|ad-container|banner-ad)\b',
+    re.IGNORECASE,
+)
+
+_AD_DATA_ATTRS = {
+    "data-ad", "data-ad-slot", "data-adunit", "data-ad-client",
+    "data-google-query-id", "data-ad-format", "data-adsbygoogle-status",
+}
 
 
 def guess_type(tag: Optional[str], role: Optional[str], attrs: Dict[str, Any]) -> str:
@@ -139,8 +152,10 @@ def guess_type(tag: Optional[str], role: Optional[str], attrs: Dict[str, Any]) -
     if "badge" in class_str or "label" in class_str or "chip" in class_str:
         return "badge"
 
-    # Ad detection
-    if "ad" in class_str or "advertisement" in class_str or "sponsor" in class_str:
+    # Ad detection (word-boundary matching to avoid false positives like "heading", "shadow")
+    if _AD_PATTERN.search(class_str) or _AD_PATTERN.search(attrs.get("id", "")):
+        return "ad"
+    if any(k in _AD_DATA_ATTRS for k in attrs.keys()):
         return "ad"
 
     # Logo

@@ -293,21 +293,11 @@ def _build_reading_order(elements: List[Dict[str, Any]], page_size: Size) -> Lis
     order: List[int] = []
     visited = set()
 
-    def is_in_viewport(r: Dict[str, int]) -> bool:
-        return (
-            r["x"] >= 0
-            and r["y"] >= 0
-            and r["x"] + r["w"] <= page_size.width
-            and r["y"] + r["h"] <= page_size.height
-        )
-
     def dfs(i: int):
         if i in visited:
             return  # guard against accidental cycles
         visited.add(i)
-        
-        if is_in_viewport(elements[i]["rect"]):
-            order.append(i)
+        order.append(i)  # Always include — viewport filtering is handled by the caller
 
         for c in children.get(i, []):
             dfs(c)
@@ -315,11 +305,9 @@ def _build_reading_order(elements: List[Dict[str, Any]], page_size: Size) -> Lis
     for r in roots:
         dfs(r)
 
-    # Repair any missing nodes
+    # Repair any disconnected nodes (broken/missing hierarchy)
     if len(visited) != n:
         remaining = [i for i in range(n) if i not in visited]
-        # Only include remaining nodes if they are in viewport
-        remaining = [i for i in remaining if is_in_viewport(elements[i]["rect"])]
         order.extend(_predict_order(remaining))
 
     return order
@@ -342,18 +330,91 @@ def _draw_arrow(draw: ImageDraw.ImageDraw, p0: tuple[float, float], p1: tuple[fl
     draw.polygon([p1, left, right], fill=color)
 
 
+def _render_reading_order_image(
+    im: "Image.Image",
+    elems: List[Dict[str, Any]],
+    order: List[int],
+    leaf_only: bool,
+    min_box_area: int,
+) -> "Image.Image":
+    """Render reading-order boxes and arrows onto a copy of *im* and return it."""
+
+    palette = [
+        (255, 0, 0),
+        (0, 128, 0),
+        (0, 0, 255),
+        (255, 140, 0),
+        (128, 0, 128),
+        (0, 191, 255),
+        (255, 0, 255),
+        (139, 69, 19),
+        (46, 139, 87),
+        (75, 0, 130),
+    ]
+    color_arrow = (220, 40, 60)
+    line_width = 2
+
+    # Identify which elements are leaves (have no children that are also in the list)
+    is_leaf = [True] * len(elems)
+    if leaf_only:
+        has_parent_index = any("parent_index" in el for el in elems)
+        if has_parent_index:
+            for idx, el in enumerate(elems):
+                p = el.get("parent_index")
+                if isinstance(p, int) and 0 <= p < len(elems) and p != idx:
+                    is_leaf[p] = False
+
+    overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    font = _load_font(13)
+
+    centers: List[Optional[tuple[float, float]]] = []
+    drawn_idx = 0
+
+    for el_idx in order:
+        if leaf_only and not is_leaf[el_idx]:
+            continue
+
+        el = elems[el_idx]
+        r = el["rect"]
+        if _should_skip(r, min_box_area):
+            centers.append(None)
+            continue
+
+        drawn_idx += 1
+        color = palette[(drawn_idx - 1) % len(palette)]
+        x1, y1, x2, y2 = _rect_to_xyxy(r)
+
+        draw.rectangle((x1, y1, x2, y2), outline=color, width=line_width)
+        _draw_label(draw, (x1 + 1, max(0, y1 - 18)), str(drawn_idx), color, font)
+        centers.append(_center_of_rect(r))
+
+    # Arrows between consecutive drawn elements
+    prev_center = None
+    for c in centers:
+        if c is None:
+            continue
+        if prev_center is not None:
+            _draw_arrow(draw, prev_center, c, color_arrow, width=line_width)
+        prev_center = c
+
+    return Image.alpha_composite(im, overlay).convert("RGB")
+
+
 def visualize_reading_order(
     image_path: str,
     elements_path: str,
     out_path: str,
     min_box_area: int = 9,
-    leaf_only: bool = True,
 ):
-    """Draw reading order (preorder traversal) over the screenshot.
+    """Draw reading-order visualizations over the screenshot.
 
-    Saves an image with numbered boxes and arrows connecting the order.
+    Saves two images:
+    - *out_path*               — leaf elements only (cleaner, less cluttered)
+    - *out_path* with ``_all`` suffix — all elements including containers
+
+    Both images are numbered in reading order and connected with red arrows.
     """
-
     if not (os.path.exists(image_path) and os.path.exists(elements_path)):
         return
 
@@ -368,74 +429,16 @@ def visualize_reading_order(
     if not order:
         return
 
-    # Identify leaves if needed
-    is_leaf = [True] * len(elems)
-    if leaf_only:
-        has_parent_index = any("parent_index" in el for el in elems)
-        if has_parent_index:
-            for idx, el in enumerate(elems):
-                p = el.get("parent_index")
-                if isinstance(p, int) and 0 <= p < len(elems) and p != idx:
-                    is_leaf[p] = False
-
-    overlay = Image.new("RGBA", im.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    font = _load_font(13)
-
-    # Periodic color palette for boxes and labels
-    palette = [
-        (255, 0, 0),    # Red
-        (0, 128, 0),    # Green
-        (0, 0, 255),    # Blue
-        (255, 140, 0),  # Dark Orange
-        (128, 0, 128),  # Purple
-        (0, 191, 255),  # Deep Sky Blue
-        (255, 0, 255),  # Magenta
-        (139, 69, 19),  # Saddle Brown
-        (46, 139, 87),  # Sea Green
-        (75, 0, 130),   # Indigo
-    ]
-
-    color_arrow = (220, 40, 60)  # bright red arrows
-    line_width = 2
-    centers: List[Optional[tuple[float, float]]] = []
-
-    drawn_idx = 0
-    for idx, el_idx in enumerate(order):
-        if leaf_only and not is_leaf[el_idx]:
-            continue
-
-        el = elems[el_idx]
-        r = el["rect"]
-        if _should_skip(r, min_box_area):
-            centers.append(None)
-            continue
-        
-        drawn_idx += 1
-        color = palette[(drawn_idx - 1) % len(palette)]
-        x1, y1, x2, y2 = _rect_to_xyxy(r)
-        
-        # Draw box outline
-        draw.rectangle((x1, y1, x2, y2), outline=color, width=line_width)
-        
-        # Draw index label at top-left
-        _draw_label(draw, (x1 + 1, max(0, y1 - 18)), str(drawn_idx), color, font)
-        # print the raw element by drawn_idx
-        print(f"Drawn_idx {drawn_idx}: {el}")
-    
-        centers.append(_center_of_rect(r))
-
-    # Draw arrows along the centers of valid boxes
-    prev_center = None
-    for c in centers:
-        if c is None:
-            continue
-        if prev_center is not None:
-            _draw_arrow(draw, prev_center, c, color_arrow, width=line_width)
-        prev_center = c
-
-    out = Image.alpha_composite(im, overlay).convert("RGB")
     ensure_dir(os.path.dirname(out_path))
-    out.save(out_path, quality=95)
+
+    # Version 1: leaf elements only
+    leaf_img = _render_reading_order_image(im, elems, order, leaf_only=True, min_box_area=min_box_area)
+    leaf_img.save(out_path, quality=95)
+
+    # Version 2: all elements (including containers)
+    base, ext = os.path.splitext(out_path)
+    all_path = f"{base}_all{ext}"
+    all_img = _render_reading_order_image(im, elems, order, leaf_only=False, min_box_area=min_box_area)
+    all_img.save(all_path, quality=95)
 
 

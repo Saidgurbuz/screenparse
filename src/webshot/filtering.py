@@ -100,7 +100,7 @@ def compute_containment(inner: Dict[str, int], outer: Dict[str, int]) -> float:
     x1 = max(inner["x"], outer["x"])
     y1 = max(inner["y"], outer["y"])
     x2 = min(inner["x"] + inner["w"], outer["x"] + outer["w"])
-    y2 = min(inner["y"] + inner["h"], outer["y"] + inner["h"])
+    y2 = min(inner["y"] + inner["h"], outer["y"] + outer["h"])
 
     if x2 <= x1 or y2 <= y1:
         return 0.0
@@ -198,7 +198,10 @@ PROTECTED_TYPES = {
     "code snippet",
     "carousel",
     "calendar",
-    "text",
+    # NOTE: "text" is intentionally excluded — it is the generic fallback type for any
+    # unrecognised div/span/section. Protecting it would shield ALL generic containers
+    # from filtering, which causes massive annotation clutter. Semantic text elements
+    # (p, h1-h6, span) are already protected via their HTML tags below.
     "heading",
     "title",
     # Feedback/notification elements
@@ -414,6 +417,151 @@ def is_pure_layout_container(element: Dict[str, Any]) -> bool:
     return True
 
 
+def _prune_wrapper_containers(
+    elements: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Remove generic div wrappers that are purely structural shells.
+
+    A div is pruned when ALL of these hold:
+    - tag is "div"
+    - type is "text" (generic fallback — no semantic type detected)
+    - no meaningful ARIA role
+    - no interactive indicators (onClick, interactive class names, etc.)
+    - has at least one child in the filtered set
+
+    This aggressively removes layout shells (e.g. <div> wrapping a <nav>,
+    <div> wrapping a single <button>) while the children themselves are kept.
+    The benefit is much cleaner annotations without redundant containers.
+    The risk (losing meaningful grouping divs) is handled by the IoU-dedup
+    fix: we now preserve different-type element pairs, so text blocks are
+    not lost when they overlap with link elements.
+    """
+    MEANINGFUL_ROLES = {
+        "button", "link", "navigation", "banner", "contentinfo", "main",
+        "search", "region", "complementary", "form", "alert", "dialog",
+        "menu", "menubar", "tab", "tablist", "tabpanel", "listbox", "combobox",
+    }
+
+    keep = []
+    for el in elements:
+        tag = (el.get("tag") or "").lower()
+        el_type = (el.get("type") or "").lower()
+        children = el.get("children_indices", [])
+        role = (el.get("role") or "").lower()
+
+        if (
+            tag == "div"                       # only plain divs (not section/article/main)
+            and el_type == "text"              # generic fallback type only
+            and role not in MEANINGFUL_ROLES
+            and not has_interactive_indicators(el)
+            and len(children) >= 1             # any wrapper with children is a structural shell
+        ):
+            continue  # drop: children already represent all content
+
+        keep.append(el)
+    return keep
+
+
+# HTML tags that are semantically "text blocks" by definition.
+# These can be safely recovered when they have own text that isn't
+# represented in the filtered set. Layout containers (div, section,
+# article, etc.) are explicitly excluded — they're structural, not textual.
+_TEXT_SEMANTIC_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "dt", "dd", "blockquote"}
+
+_MIN_OWN_TEXT_LEN = 15  # characters
+
+
+def _recover_mixed_content_text(
+    filtered: List[Dict[str, Any]],
+    original_elements: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Recover text-semantic elements that were dropped by IoU deduplication
+    despite having their own direct text content (text nodes mixed with
+    inline children such as links).
+
+    Classic case:
+        <p>Intro text, see <a>link 1</a> and <a>link 2</a> for details.</p>
+
+    After normal filtering the two <a> elements are kept but the <p> is
+    dropped because one of its children has a high-IoU bounding box with it.
+    The "Intro text ... for details." text is then invisible in the annotations.
+
+    An element is recovered when ALL three conditions hold:
+        1. tag is a text-semantic HTML element (p, h1-h6, li, dt, dd, blockquote)
+           — this excludes layout containers (div, section, article, …) entirely.
+        2. It has meaningful "own text" — direct text-node content that is NOT
+           contributed by any of its children (computed by subtracting each
+           child's inner_text from the element's inner_text).
+        3. At least one of its direct DOM children is already in the filtered
+           set — confirming this is the mixed-content case (children survived
+           but the wrapping text element did not).
+    """
+    if not original_elements:
+        return filtered
+
+    filtered_dom_indices: Set[int] = {
+        el["_dom_index"]
+        for el in filtered
+        if el.get("_dom_index") is not None
+    }
+
+    original_by_dom_idx: Dict[int, Dict[str, Any]] = {
+        el["_dom_index"]: el
+        for el in original_elements
+        if el.get("_dom_index") is not None
+    }
+
+    to_recover: List[Dict[str, Any]] = []
+
+    for el in original_elements:
+        dom_idx = el.get("_dom_index")
+        if dom_idx in filtered_dom_indices:
+            continue  # already kept
+
+        # Gate 1: text-semantic tag only
+        tag = (el.get("tag") or "").lower()
+        if tag not in _TEXT_SEMANTIC_TAGS:
+            continue
+
+        # Must have at least one child (otherwise it's a plain leaf — normal
+        # filtering should have kept it; if it was dropped for another reason
+        # we don't want to blindly re-add it here)
+        child_dom_indices: List[int] = el.get("_children_dom_indices") or []
+        if not child_dom_indices:
+            continue
+
+        # Gate 2: meaningful own text
+        inner_text = (el.get("inner_text") or "").strip()
+        if not inner_text:
+            continue
+
+        own_text = inner_text
+        for cdom in child_dom_indices:
+            child = original_by_dom_idx.get(cdom)
+            if child:
+                ct = (child.get("inner_text") or "").strip()
+                if ct:
+                    own_text = own_text.replace(ct, "", 1)
+        own_text = own_text.strip()
+
+        if len(own_text) < _MIN_OWN_TEXT_LEN:
+            continue  # pure container or negligible own text
+
+        # Gate 3: at least one direct child is in the filtered set
+        if not any(c in filtered_dom_indices for c in child_dom_indices):
+            continue  # children were also dropped — different issue, don't recover
+
+        to_recover.append(el)
+
+    if not to_recover:
+        return filtered
+
+    merged = filtered + to_recover
+    return remap_hierarchy_after_filtering(original_elements, merged)
+
+
 def filter_elements(
     elements: List[Dict[str, Any]],
     viewport_w: int,
@@ -462,6 +610,12 @@ def filter_elements(
         if w <= 0 or h <= 0:
             continue
 
+        # Hard floor: always reject truly invisible elements regardless of protection.
+        # width=1 or height=1 is the CSS sr-only trick (e.g. "Skip to content" links,
+        # off-screen headings) — they have zero visual presence in the screenshot.
+        if w <= 1 or h <= 1:
+            continue
+
         # Skip tiny boxes (but allow protected elements)
         if (w * h < min_box_size) and not is_protected(el):
             continue
@@ -488,11 +642,11 @@ def filter_elements(
             continue
 
         
-        # get the tag
+        # Skip tiny SVG paths but keep large ones (standalone icons/graphics)
         tag = (el.get("tag") or "").lower()
-        # if tag is path, skip
         if tag == "path":
-            continue
+            if rect.get("w", 0) * rect.get("h", 0) < 400:  # ~20x20 threshold
+                continue
 
         # Skip hidden elements
         if (el.get("aria_hidden") or "").lower() == "true":
@@ -505,9 +659,23 @@ def filter_elements(
         filtered = _remove_duplicates_iou(filtered, iou_threshold)
 
 
-    # Remap hierarchy after all filtering is done
-    # This ensures children of removed parents point to their nearest surviving ancestor
+    # Remap hierarchy after all filtering is done.
+    # This ensures children of removed parents point to their nearest surviving ancestor.
     filtered = remap_hierarchy_after_filtering(original_elements, filtered)
+
+    # Prune generic layout wrapper containers (div/section shells that only wrap children).
+    # Now that children_indices are populated we can detect them reliably.
+    pruned = _prune_wrapper_containers(filtered)
+    if len(pruned) != len(filtered):
+        # Remap hierarchy again so indices are valid for the pruned list.
+        filtered = remap_hierarchy_after_filtering(original_elements, pruned)
+    else:
+        filtered = pruned
+
+    # Recover text-semantic elements (p, h1-h6, li, …) that have their own
+    # direct text content but were dropped by IoU deduplication because an
+    # inline child (e.g. <a>) had an overlapping bounding box.
+    filtered = _recover_mixed_content_text(filtered, original_elements)
 
     return filtered
 

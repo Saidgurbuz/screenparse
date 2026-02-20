@@ -41,10 +41,27 @@ class Config:
     timeouts: Timeouts = field(default_factory=Timeouts)
     locale: str = "en-US"
     color_scheme: str = "light"
-    network_idle_wait_ms: int = 800
     headless: bool = True
     out_dir: str = "data/raw"
     viz_dir: str = "data/viz"
     do_ocr: bool = False
     capture_full_page: bool = False
     user_agent: str = None  # Optional custom user agent
+
+    # Wait strategy
+    network_idle_timeout_ms: int = 5000  # Max wait for networkidle (ceiling)
+    post_idle_stabilization_ms: int = 500  # Brief post-idle wait for JS rendering
+
+    # Iframe filtering
+    filter_ad_iframes: bool = True
+
+    # Page cleanup
+    dismiss_cookie_consent: bool = True
+    dismiss_overlays: bool = False  # Aggressive: removes large fixed/sticky overlays
+    hide_chat_widgets: bool = True
+
+    # Ad blocking
+    block_ad_requests: bool = False  # Opt-in: block ad/tracking requests at network level
+
+    # Annotation enrichment
+    traverse_shadow_dom: bool = True

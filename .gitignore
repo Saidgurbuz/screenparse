@@ -112,3 +112,6 @@ desktop.ini
 CLAUDE.md
 *coco.yml
 *.csv
+src/webshot/pack_huggingface.py
+HUGGINGFACE_DATASET_FORMAT.md
+UPLOAD_GUIDE.md
