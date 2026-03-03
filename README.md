@@ -112,15 +112,16 @@ URLs → Web Crawling → Raw Annotations → VLM Refinement → Quality Filteri
 
 ## Element Taxonomy
 
-Webshot annotates 55 UI element classes organized into categories:
+Webshot annotates 55 UI element classes organized into the following categories:
 
 | Category | Classes |
 |----------|---------|
-| Interactive | button, input, link, checkbox, radio, select, slider, switch, textarea |
-| Navigation | navigation bar, tab bar, tab, breadcrumb, pagination, menu, toolbar |
-| Content | text, heading, image, icon, video, table, list, card, code snippet |
-| Feedback | tooltip, alert, notification, badge, progress bar |
-| Layout | form, modal, sidebar, header, footer, scroll, window |
+| Global Interface Elements | Status Bar, Navigation Bar, Tab Bar, Toolbar, Side Bar, Bottom navigation, DockMenu, EditMenu, ContextMenu |
+| Navigation | Link, Breadcrumb, Pagination, Tab, Page control, Menu, PopUp Menu, Search Bar, Search Field |
+| Inputs & Controls | Button, Utility Button, Text Input, Select, Checkbox, Radiobox, Switch, Slider, Steppers, Toggles, Picker, Date-Time picker, Calendar, Rating Indicator |
+| Content & Media | Text, Heading, Image, Video, Carousel, Code snippet, Chart, Table, List, List Item, Column/Browser, File Icon, App Icon, Logo, Avatar |
+| Feedback & Status | Tooltip, Alert, Notification, Badge, Progress bar |
+| Layout & Viewport | Window, Screen, Scroll |
 
 See [USAGE.md](USAGE.md) for the complete taxonomy.
 
