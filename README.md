@@ -3,7 +3,6 @@
 This repository contains **Webshot**, the automated dataset generation pipeline for [ScreenParse](https://arxiv.org/pdf/2602.14276), introduced in:
 
 > **Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision**
-> *International Conference on Machine Learning (ICML) 2026*
 
 ## Overview
 
