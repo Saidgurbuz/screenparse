@@ -16,11 +16,32 @@ from .metrics.map import MeanAveragePrecision
 from .metrics.recall import Recall
 from .metrics.ned import NormalizedEditDistance
 from .models.base import OfflinePredictionRunner
-from .models.gemini import GeminiRunner
-from .models.paddleocrvl import PaddleOCRVLRunner
-from .models.screenvlm import ScreenVLMRunner
-from .models.yolo import YoloModelRunner
-from .models.qwen3_vl import Qwen3VLRunner
+
+try:
+    from .models.gemini import GeminiRunner
+except ImportError:
+    GeminiRunner = None
+
+try:
+    from .models.paddleocrvl import PaddleOCRVLRunner
+except ImportError:
+    PaddleOCRVLRunner = None
+
+try:
+    from .models.screenvlm import ScreenVLMRunner
+except ImportError:
+    ScreenVLMRunner = None
+
+try:
+    from .models.yolo import YoloModelRunner
+except ImportError:
+    YoloModelRunner = None
+
+try:
+    from .models.qwen3_vl import Qwen3VLRunner
+except ImportError:
+    Qwen3VLRunner = None
+
 from .runner import Evaluator
 from .types import BoundingBox, EvaluationSample, MetricResult, SampleResult, UIElement
 

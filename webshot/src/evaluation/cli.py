@@ -28,14 +28,6 @@ from .metrics.map import MeanAveragePrecision
 from .metrics.recall import Recall
 from .metrics.ned import NormalizedEditDistance
 from .metrics.page_iou import PageIoU, PageIoURecall
-from .models.base import OfflinePredictionRunner
-from .models.gemini import GeminiRunner
-from .models.paddleocrvl import PaddleOCRVLRunner
-from .models.qwen3_vl import Qwen3VLRunner
-from .models.internvl3 import InternVL3Runner
-from .models.rtdetr import RTDETRModelRunner
-from .models.screenvlm import ScreenVLMRunner
-from .models.yolo import YoloModelRunner
 from .runner import Evaluator
 from .viz import VizConfig, legacy_defaults, save_viz
 
@@ -259,20 +251,36 @@ def _run_viz_only(dataset_runs, args):
 def _build_runner_from_spec(spec: Tuple[str, Dict]):
     kind, kwargs = spec
     if kind == "yolo":
+        from .models.yolo import YoloModelRunner
+
         return YoloModelRunner(**kwargs)
     if kind == "offline":
+        from .models.base import OfflinePredictionRunner
+
         return OfflinePredictionRunner(**kwargs)
     if kind == "qwen3_vl":
+        from .models.qwen3_vl import Qwen3VLRunner
+
         return Qwen3VLRunner(**kwargs)
     if kind == "internvl3":
+        from .models.internvl3 import InternVL3Runner
+
         return InternVL3Runner(**kwargs)
     if kind == "gemini":
+        from .models.gemini import GeminiRunner
+
         return GeminiRunner(**kwargs)
     if kind == "paddleocrvl":
+        from .models.paddleocrvl import PaddleOCRVLRunner
+
         return PaddleOCRVLRunner(**kwargs)
     if kind == "screenvlm":
+        from .models.screenvlm import ScreenVLMRunner
+
         return ScreenVLMRunner(**kwargs)
     if kind == "rtdetr":
+        from .models.rtdetr import RTDETRModelRunner
+
         return RTDETRModelRunner(**kwargs)
     raise ValueError(f"Unknown model kind {kind}")
 

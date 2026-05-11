@@ -1,166 +1,72 @@
-# Webshot: Scalable Dataset Generation for Complete Screen Parsing
+# [ICML 2026] ScreenParse
 
-This repository contains **Webshot**, the automated dataset generation pipeline for [ScreenParse](https://arxiv.org/pdf/2602.14276), introduced in:
+[![ICML 2026](https://img.shields.io/badge/ICML-2026-8A1538)](https://icml.cc/)
+[![arXiv](https://img.shields.io/badge/arXiv-2602.14276-b31b1b)](https://arxiv.org/abs/2602.14276)
+[![Project Page](https://img.shields.io/badge/Project-Page-2f6f8f)](https://saidgurbuz.github.io/screenparse/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> **Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision**
+Official code release for **ScreenParse: Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision**, accepted to **ICML 2026**.
 
-## Overview
+ScreenParse studies complete screen parsing for computer-use agents: recovering visible UI elements, their locations, semantic types, text, and hierarchy from a screenshot. The project introduces:
 
-Modern computer-use agents must perceive screens as structured states—identifying what elements are visible, where they are located, and what text they contain—before reliably grounding instructions. Existing grounding datasets provide only sparse supervision with limited label diversity, annotating small subsets of elements per screen.
+- **ScreenParse**, a large-scale dataset with dense UI annotations over web screenshots.
+- **Webshot**, the automated data generation and filtering pipeline used to build ScreenParse.
+- **ScreenVLM**, a compact vision-language model trained for structured screen parsing.
 
-**ScreenParse** addresses this limitation with dense annotations of all visible UI elements across 771K web screenshots (21M elements total), featuring:
-- Bounding boxes for precise localization
-- 55-class semantic type labels
-- Extracted text content
-- Hierarchical parent-child relationships
+![Webshot pipeline overview](assets/webshot_pipeline.png)
 
-**Webshot** is the scalable pipeline that generates ScreenParse through:
-1. Automated web rendering of diverse URLs
-2. DOM-based annotation extraction
-3. VLM-based label refinement (Qwen3-VL)
-4. Quality filtering and deduplication
+## Repository Layout
 
-## Installation
-
-```bash
-git clone https://github.com/your-org/webshot-dataset.git
-cd webshot-dataset
-pip install -e .
-playwright install chromium
+```text
+.
+|-- webshot/      # Dataset generation, refinement, export, and evaluation toolkit
+|-- assets/       # Figures used by this repository README
+`-- LICENSE
 ```
 
-Optional OCR support:
-```bash
-# Ubuntu
-apt-get install tesseract-ocr
-# macOS
-brew install tesseract
-```
+The runnable code currently lives in [`webshot/`](webshot/). Its README contains installation, dataset generation, VLM refinement, YOLO export, and evaluation instructions.
 
 ## Quick Start
 
-### Dataset Generation
+```bash
+cd webshot
+uv sync
+uv run playwright install chromium
+uv run wsd --help
+```
+
+To run a small Webshot pipeline example:
 
 ```bash
-# Prepare URL list
-echo -e "https://github.com\nhttps://stackoverflow.com" > urls.csv
-
-# Run full pipeline
-wsd pipeline --urls urls.csv --workers 4
-
-# Output: data/raw/ (screenshots), data/viz/ (visualizations), data/yolo/ (training data)
+cd webshot
+uv run wsd pipeline --urls examples/urls_sample.csv --workers 4
 ```
 
-### Individual Pipeline Steps
+See [`webshot/README.md`](webshot/README.md) and [`webshot/USAGE.md`](webshot/USAGE.md) for detailed usage.
 
-```bash
-# 1. Crawl websites
-wsd crawl --urls urls.csv --workers 4 --out data/raw
+## Links
 
-# 2. Visualize annotations
-wsd viz --out data/raw --viz data/viz
-
-# 3. Export to YOLO format
-wsd yolo --raw-dir data/raw --yolo-dir data/yolo
-```
-
-### VLM-based Refinement
-
-```bash
-# Relabel elements using Qwen3-VL
-wsd vlm-label --raw-dir data/raw --model Qwen/Qwen3-VL-8B-Instruct --batch-size 64
-
-# Quality filtering
-wsd vlm-score --viz-dir data/viz --threshold 50
-```
-
-### Model Training
-
-```bash
-wsd train --data data/yolo/data.yaml --epochs 100 --batch 16
-```
-
-### Evaluation
-
-```bash
-# Evaluate detection model
-wsd-eval \
-  --format yolo \
-  --image-dir data/yolo/images/val \
-  --labels-dir data/yolo/labels/val \
-  --classes data/yolo/classes.txt \
-  --yolo-model weights.pt \
-  --metrics page_iou,label_page_iou,map
-
-# Evaluate VLM
-wsd-eval \
-  --qwen3-vl Qwen/Qwen3-VL-8B-Instruct \
-  --format yolo \
-  --image-dir data/yolo/images/val \
-  --labels-dir data/yolo/labels/val \
-  --classes data/yolo/classes.txt \
-  --metrics page_iou,label_page_iou,map \
-  --batch-size 32
-```
-
-## Pipeline Architecture
-
-```
-URLs → Web Crawling → Raw Annotations → VLM Refinement → Quality Filtering → YOLO Export
-         (Playwright)    (DOM extraction)   (Qwen3-VL)      (VLM scoring)     (train/val/test)
-```
-
-## Element Taxonomy
-
-Webshot annotates 55 UI element classes organized into the following categories:
-
-| Category | Classes |
-|----------|---------|
-| Global Interface Elements | Status Bar, Navigation Bar, Tab Bar, Toolbar, Side Bar, Bottom navigation, DockMenu, EditMenu, ContextMenu |
-| Navigation | Link, Breadcrumb, Pagination, Tab, Page control, Menu, PopUp Menu, Search Bar, Search Field |
-| Inputs & Controls | Button, Utility Button, Text Input, Select, Checkbox, Radiobox, Switch, Slider, Steppers, Toggles, Picker, Date-Time picker, Calendar, Rating Indicator |
-| Content & Media | Text, Heading, Image, Video, Carousel, Code snippet, Chart, Table, List, List Item, Column/Browser, File Icon, App Icon, Logo, Avatar |
-| Feedback & Status | Tooltip, Alert, Notification, Badge, Progress bar |
-| Layout & Viewport | Window, Screen, Scroll |
-
-See [USAGE.md](USAGE.md) for the complete taxonomy.
-
-## Supported Evaluation Metrics
-
-| Metric | Description |
-|--------|-------------|
-| PageIoU | Pixel-level intersection-over-union of rendered boxes |
-| Label PageIoU | Class-aware PageIoU |
-| mAP | Mean average precision at IoU threshold |
-| Recall | Detection recall (label-aware and agnostic variants) |
-| NED | Normalized edit distance for text extraction |
-
-## Supported Models
-
-The evaluation framework supports:
-- **Detection models**: YOLOv11, RT-DETRv2, OmniParser
-- **Vision-language models**: Qwen3-VL, InternVL3, Gemini, ScreenVLM
-
-## Documentation
-
-- [USAGE.md](USAGE.md) — Detailed usage guide
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Contribution guidelines
-- [examples/](examples/) — Example configurations
+- Project page: https://saidgurbuz.github.io/screenparse/
+- Paper: https://arxiv.org/abs/2602.14276
+- Webshot toolkit: [`webshot/`](webshot/)
 
 ## Citation
 
+The official ICML proceedings citation will be added when available. For now, please cite:
+
 ```bibtex
-@misc{gurbuz2026movingsparsegroundingcomplete,
-      title={Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision},
+@misc{gurbuz2026screenparse,
+      title={ScreenParse: Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision},
       author={A. Said Gurbuz and Sunghwan Hong and Ahmed Nassar and Marc Pollefeys and Peter Staar},
       year={2026},
       eprint={2602.14276},
       archivePrefix={arXiv},
       primaryClass={cs.CV},
       url={https://arxiv.org/abs/2602.14276},
+      note={Accepted to ICML 2026}
 }
 ```
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+This repository is released under the MIT License. See [`LICENSE`](LICENSE) for details.

@@ -6,8 +6,8 @@ Thank you for your interest in contributing to Webshot! This guide focuses on ex
 
 ```bash
 # Fork and clone the repository
-git clone https://github.com/your-username/webshot-dataset.git
-cd webshot-dataset
+git clone <screenparse-repo-url>
+cd screenparse/webshot
 
 # Install in development mode
 pip install -e .

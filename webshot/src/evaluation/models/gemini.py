@@ -11,8 +11,6 @@ from ..label_mapping import get_class_list
 from ..types import BoundingBox, EvaluationSample, UIElement
 from .base import ModelRunner
 
-os.environ["GEMINI_API_KEY"] = "AIzaSyDd6uD_bq5Pz3X8jMk5hL1UNafO1nnXp3o"
-
 def _classes_block(classes: List[str]) -> str:
     return "Allowed labels:\n- " + "\n- ".join(classes)
 

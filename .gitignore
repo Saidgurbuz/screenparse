@@ -53,6 +53,10 @@ evaluation/
 *.doc
 *.docx
 
+# Repository README assets
+!assets/
+!assets/**
+
 # Scripts and notebooks
 *.sh
 *.ipynb
@@ -66,7 +70,7 @@ configs/
 # URL lists (keep examples)
 urls/
 *.urls.txt
-!examples/
+!webshot/examples/
 
 # IDE and editor files
 .vscode/
@@ -105,13 +109,12 @@ desktop.ini
 !requirements.txt
 !pyproject.toml
 !USAGE.md
-!src/evaluation/
+!webshot/src/evaluation/
 
 # Keep example files
-!examples/**
+!webshot/examples/**
 CLAUDE.md
 *coco.yml
-*.csv
-src/webshot/pack_huggingface.py
+webshot/src/webshot/pack_huggingface.py
 HUGGINGFACE_DATASET_FORMAT.md
 UPLOAD_GUIDE.md

@@ -340,7 +340,7 @@ def score_visualizations(
     batch_size: int = 256,
     tensor_parallel_size: int = 1,
     limit: Optional[int] = None,
-    threshold: float = 40.0,
+    threshold: float = 70.0,
     output_file: Optional[str] = None,
     scores_json: Optional[str] = None,
     images_per_pass: int = 512,

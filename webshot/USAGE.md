@@ -6,7 +6,7 @@ A Python toolkit for collecting web screenshots with rich annotations and export
 
 ```bash
 # Clone the repository
-cd webshot-dataset
+cd screenparse/webshot
 
 # Install dependencies with uv (recommended)
 uv sync

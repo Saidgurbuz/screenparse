@@ -661,7 +661,7 @@ def main():
     ps.add_argument("--batch-size", type=int, default=256, help="VLM micro-batch size")
     ps.add_argument("--tp", dest="tensor_parallel_size", type=int, default=1, help="Tensor-parallel size")
     ps.add_argument("--limit", type=int, help="Limit number of images (for smoke testing)")
-    ps.add_argument("--threshold", type=float, default=50.0, help="Quality threshold; images below this are filtered (0-100)")
+    ps.add_argument("--threshold", type=float, default=70.0, help="Quality threshold; images below this are filtered (0-100)")
     ps.add_argument("--output", default="data/filtered_low_quality.txt", help="Output file for filtered sample paths")
     ps.add_argument("--scores-json", help="If set, write all scores to this JSON file")
     ps.add_argument("--images-per-pass", type=int, default=512, help="Number of images per outer pass (memory tuning)")
