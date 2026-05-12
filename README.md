@@ -20,6 +20,7 @@ ScreenParse studies complete screen parsing for computer-use agents: recovering 
 ```text
 .
 |-- webshot/      # Dataset generation, refinement, export, and evaluation toolkit
+|-- docs/         # Project website published with GitHub Pages
 |-- assets/       # Figures used by this repository README
 `-- LICENSE
 ```

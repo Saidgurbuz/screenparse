@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ScreenParse: An ICML 2026 paper on complete screen parsing with dense UI element annotations">
+  <title>ScreenParse</title>
+
+  <!-- Bulma CSS -->
+  <link rel="stylesheet" href="static/css/bulma.min.css">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="static/css/index.css">
+</head>
+
+<body>
+
+  <!-- Hero Section -->
+  <section class="hero is-light">
+    <div class="hero-body">
+      <div class="container has-text-centered">
+        <h1 class="title is-1 publication-title">
+          ScreenParse
+        </h1>
+        <h2 class="subtitle is-3 publication-subtitle">
+          Moving Beyond Sparse Grounding with Complete Screen Parsing
+        </h2>
+        <p class="is-size-5 publication-venue">
+          <span class="venue-badge"><i class="fas fa-award"></i> ICML 2026</span>
+        </p>
+
+        <!-- Authors -->
+        <div class="publication-authors">
+          <span class="author-block">
+            <a href="https://research.ibm.com/people/said-gurbuz" target="_blank" class="author-link">A. Said Gurbuz</a><sup>1,2</sup>,
+          </span>
+          <span class="author-block">
+            <a href="https://sunghwanhong.github.io" target="_blank" class="author-link">Sunghwan Hong</a><sup>2,*</sup>,
+          </span>
+          <span class="author-block">
+            <a href="https://research.ibm.com/people/ahmed-nassar" target="_blank" class="author-link">Ahmed Nassar</a><sup>1</sup>,
+          </span>
+          <span class="author-block">
+            <a href="https://people.inf.ethz.ch/pomarc/" target="_blank" class="author-link">Marc Pollefeys</a><sup>2,3</sup>,
+          </span>
+          <span class="author-block">
+            <a href="https://research.ibm.com/people/peter-staar" target="_blank" class="author-link">Peter Staar</a><sup>1</sup>
+          </span>
+        </div>
+
+        <!-- Affiliations -->
+        <div class="publication-affiliations">
+          <span class="affiliation-block"><sup>1</sup>IBM Research Zurich</span>
+          <span class="affiliation-block"><sup>2</sup>ETH Zurich</span>
+          <span class="affiliation-block"><sup>3</sup>Microsoft</span>
+        </div>
+        <p class="corresponding-author"><sup>*</sup><i class="fas fa-envelope"></i> Corresponding author</p>
+
+        <!-- Resource Buttons -->
+        <div class="publication-links">
+          <a class="button is-rounded is-dark" href="https://arxiv.org/pdf/2602.14276" target="_blank">
+            <span class="icon"><i class="fas fa-file-pdf"></i></span>
+            <span>Paper</span>
+          </a>
+          <a class="button is-rounded is-dark" href="https://github.com/Saidgurbuz/screenparse" target="_blank" rel="noopener noreferrer">
+            <span class="icon"><i class="fab fa-github"></i></span>
+            <span>Code</span>
+          </a>
+          <a class="button is-rounded is-dark" href="#" target="_blank">
+            <span class="icon"><i class="fas fa-database"></i></span>
+            <span>Dataset (coming soon)</span>
+          </a>
+          <a class="button is-rounded is-dark" href="#" target="_blank" rel="noopener noreferrer">
+            <span class="icon"><i class="fas fa-robot"></i></span>
+            <span>Model (coming soon)</span>
+          </a>
+          <a class="button is-rounded demo-button" href="#" target="_blank" rel="noopener noreferrer">
+            <span class="icon"><i class="fas fa-play"></i></span>
+            <span>Demo (on request)</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Key Statistics -->
+  <section class="section stats-section">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <div class="columns is-multiline is-centered">
+            <div class="column is-3">
+              <div class="stat-card">
+                <p class="stat-number">771K</p>
+                <p class="stat-label">Screenshots</p>
+              </div>
+            </div>
+            <div class="column is-3">
+              <div class="stat-card">
+                <p class="stat-number">21M</p>
+                <p class="stat-label">UI Annotations</p>
+              </div>
+            </div>
+            <div class="column is-3">
+              <div class="stat-card">
+                <p class="stat-number">55</p>
+                <p class="stat-label">Semantic Classes</p>
+              </div>
+            </div>
+            <div class="column is-3">
+              <div class="stat-card">
+                <p class="stat-number">316M</p>
+                <p class="stat-label">Model Parameters</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Abstract / TL;DR -->
+  <section class="section">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <h2 class="title is-3 has-text-centered">Abstract</h2>
+          <div class="content abstract-content">
+            <p>
+              Modern computer-use agents must perceive a screen as a structured state, including what elements are visible, where they are, and what text they contain, before they can reliably ground instructions and act. Yet, most available grounding datasets provide <em>sparse</em> supervision, with insufficient and low-diversity labels that annotate only a small subset of task-relevant elements per screen.
+            </p>
+            <p>
+              We introduce <strong>ScreenParse</strong>, a large-scale dataset for <em>complete</em> screen parsing, with dense annotations of all visible UI elements (boxes, 55-class types, and text) across 771K web screenshots (21M elements). ScreenParse is generated by <strong>Webshot</strong>, an automated, scalable pipeline that renders diverse URLs, extracts annotations, and applies VLM-based relabeling and quality filtering.
+            </p>
+            <p>
+              Using ScreenParse, we train <strong>ScreenVLM</strong>, a compact, 316M-parameter vision language model that decodes a structured ScreenTag representation with a structure-aware loss. ScreenVLM substantially outperforms much larger foundation VLMs on dense parsing (e.g., <strong>0.606 vs. 0.294 PageIoU</strong>) and shows strong transfer to public benchmarks. Moreover, finetuning foundation VLMs on ScreenParse consistently improves their grounding performance.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- Dataset Ground Truth Samples -->
+  <section class="section gt-gallery-section" id="dataset-samples">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Dataset Samples</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <p class="has-text-centered gt-gallery-description">
+            Browse ground truth annotations from the ScreenParse dataset. Each screenshot shows dense UI element annotations with bounding boxes and semantic labels. The dataset covers 55 semantic classes across 771K screenshots.
+          </p>
+          <div id="gt-gallery" class="gt-gallery"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- Teaser Figure -->
+  <!-- <section class="section teaser-section">
+    <div class="container">
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <figure class="image">
+            <img src="static/images/teaser.jpg" alt="ScreenParse dense annotation example">
+          </figure>
+          <p class="has-text-centered is-size-6 teaser-caption">
+            <strong>Dense UI annotations from ScreenParse.</strong> Every visible UI element is annotated with a bounding box, semantic type (e.g., Button, Link, Heading, Menu), and HTML tag information. The dataset covers 55 semantic classes across 771K screenshots.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section> -->
+
+  <!-- The Problem Section -->
+  <section class="section problem-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">The Problem: Sparse Supervision Limits Screen Understanding</h2>
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <div class="content problem-content">
+            <p>
+              Computer-use agents must perceive screens as structured states before they can reliably ground instructions and act. Yet most grounding datasets provide <strong>sparse supervision</strong>, annotating only the single element relevant to each task step. This leaves the majority of on-screen elements unlabeled and the full screen structure implicit.
+            </p>
+            <p>
+              As a result, models can learn shortcuts sufficient for supervised steps while failing to form a <strong>complete screen state</strong>. When perception fails, errors cascade throughout the agent pipeline, hurting robustness and generalization to new layouts and applications.
+            </p>
+            <p>
+              We argue that <strong>complete screen parsing</strong>, recovering all visible UI elements, their bounding boxes, semantic types, and text, is a core training objective for building reliable screen agents.
+            </p>
+          </div>
+
+          <!-- Visual comparison -->
+          <div class="columns is-centered problem-comparison">
+            <div class="column is-5">
+              <div class="comparison-card sparse">
+                <h4><i class="fas fa-times-circle"></i> Sparse Supervision</h4>
+                <ul>
+                  <li>Only task-relevant elements annotated</li>
+                  <li>Majority of UI elements unlabeled</li>
+                  <li>Models learn shortcuts</li>
+                  <li>Poor generalization</li>
+                </ul>
+              </div>
+            </div>
+            <div class="column is-5">
+              <div class="comparison-card dense">
+                <h4><i class="fas fa-check-circle"></i> Dense Supervision</h4>
+                <ul>
+                  <li>All visible elements annotated</li>
+                  <li>Complete screen structure</li>
+                  <li>Holistic understanding</li>
+                  <li>Robust generalization</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Key Contributions -->
+  <section class="section contributions-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Key Contributions</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <div class="columns">
+            <div class="column is-4">
+              <div class="contribution-card">
+                <div class="contribution-icon">
+                  <i class="fas fa-database"></i>
+                </div>
+                <h3 class="title is-5">ScreenParse Dataset</h3>
+                <p>A large-scale dataset with <strong>21M dense UI annotations</strong> across 771K screenshots and 55 semantic classes, making it significantly more comprehensive than existing datasets.</p>
+              </div>
+            </div>
+            <div class="column is-4">
+              <div class="contribution-card">
+                <div class="contribution-icon">
+                  <i class="fas fa-cogs"></i>
+                </div>
+                <h3 class="title is-5">Webshot Pipeline</h3>
+                <p>An automated, scalable pipeline for generating dense screen annotations, combining web rendering, accessibility tree extraction, and VLM-based quality filtering.</p>
+              </div>
+            </div>
+            <div class="column is-4">
+              <div class="contribution-card">
+                <div class="contribution-icon">
+                  <i class="fas fa-brain"></i>
+                </div>
+                <h3 class="title is-5">ScreenVLM</h3>
+                <p>A compact <strong>316M-parameter</strong> VLM that outperforms much larger models on dense parsing while being <strong>4x faster</strong> and enabling practical deployment.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Dataset Section -->
+  <section class="section dataset-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">ScreenParse Dataset</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <div class="content">
+            <p class="has-text-centered">
+              ScreenParse provides <strong>complete</strong> screen parsing supervision, with dense annotations covering all visible UI elements, not just sparse task-relevant subsets.
+            </p>
+            <p class="has-text-centered dataset-motivation">
+              Existing approaches suffer from sparse annotations that leave the majority of UI elements unlabeled, limiting both the diversity and coverage of training data. For example, GroundCUA provides only 55K samples with 8 element types. ScreenParse addresses this with <strong>dense annotations</strong> spanning 771K samples and 55 semantic types, enabling models to develop comprehensive screen understanding rather than learning task-specific shortcuts.
+            </p>
+          </div>
+
+          <!-- Dataset Comparison Table -->
+          <div class="table-container">
+            <table class="table is-bordered is-striped is-hoverable is-fullwidth comparison-table">
+              <thead>
+                <tr>
+                  <th>Dataset</th>
+                  <th class="has-text-centered">Complete</th>
+                  <th class="has-text-centered"># Types</th>
+                  <th class="has-text-centered"># Elements</th>
+                  <th class="has-text-centered"># Samples</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>UGround</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">1</td>
+                  <td class="has-text-centered">9M</td>
+                  <td class="has-text-centered">773K</td>
+                </tr>
+                <tr>
+                  <td>JEDI</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">4</td>
+                  <td class="has-text-centered">4M</td>
+                  <td class="has-text-centered">575K</td>
+                </tr>
+                <tr>
+                  <td>AGUVIS-G</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">1</td>
+                  <td class="has-text-centered">3.8M</td>
+                  <td class="has-text-centered">452K</td>
+                </tr>
+                <tr>
+                  <td>OS-ATLAS</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">1*</td>
+                  <td class="has-text-centered">14.5M</td>
+                  <td class="has-text-centered">1.85M</td>
+                </tr>
+                <tr>
+                  <td>RICOSCA</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">1*</td>
+                  <td class="has-text-centered">170K</td>
+                  <td class="has-text-centered">18K</td>
+                </tr>
+                <tr>
+                  <td>UIBert</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">32</td>
+                  <td class="has-text-centered">166K</td>
+                  <td class="has-text-centered">57K</td>
+                </tr>
+                <tr>
+                  <td>Widget Caption</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">1</td>
+                  <td class="has-text-centered">101K</td>
+                  <td class="has-text-centered">14K</td>
+                </tr>
+                <tr>
+                  <td>AMEX</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">2</td>
+                  <td class="has-text-centered">1.2M</td>
+                  <td class="has-text-centered">101K</td>
+                </tr>
+                <tr>
+                  <td>ScreenSpot</td>
+                  <td class="has-text-centered"><i class="fas fa-times has-text-danger"></i></td>
+                  <td class="has-text-centered">2</td>
+                  <td class="has-text-centered">3M</td>
+                  <td class="has-text-centered">270K</td>
+                </tr>
+                <tr class="complete-row">
+                  <td>GroundCUA</td>
+                  <td class="has-text-centered"><i class="fas fa-check has-text-success"></i></td>
+                  <td class="has-text-centered">8</td>
+                  <td class="has-text-centered">3.56M</td>
+                  <td class="has-text-centered">55K</td>
+                </tr>
+                <tr class="is-selected">
+                  <td><strong>ScreenParse (Ours)</strong></td>
+                  <td class="has-text-centered"><i class="fas fa-check has-text-success"></i></td>
+                  <td class="has-text-centered"><strong>55</strong></td>
+                  <td class="has-text-centered"><strong>21M</strong></td>
+                  <td class="has-text-centered"><strong>771K</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="has-text-centered is-size-7">* These datasets do not define a well-specified set of UI element types.</p>
+
+          <!-- Class Distribution Figure -->
+          <div class="class-distribution" style="margin-top: 3rem;">
+            <h3 class="title is-5 has-text-centered">Class Distribution (Top 20)</h3>
+            <figure class="image">
+              <img src="static/images/class_dist.png" alt="Class distribution in ScreenParse dataset" style="max-width: 800px; margin: 0 auto; display: block;">
+            </figure>
+            <p class="has-text-centered is-size-7" style="margin-top: 1rem;">
+              Distribution of the 20 most frequent UI element types in ScreenParse. The dataset covers 55 semantic classes total.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Webshot Pipeline Section -->
+  <section class="section pipeline-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Webshot Pipeline</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <div class="content">
+            <p class="has-text-centered">
+              <strong>Webshot</strong> is an automated, scalable pipeline for generating dense screen annotations from web pages.
+            </p>
+          </div>
+
+          <div class="pipeline-figure">
+            <img src="static/images/pipeline.png" alt="Webshot Pipeline Diagram" class="pipeline-image">
+          </div>
+
+          <div class="columns is-centered pipeline-steps">
+            <div class="column is-10">
+              <div class="columns">
+                <div class="column">
+                  <div class="step-card">
+                    <span class="step-number">1</span>
+                    <h4>Web Rendering</h4>
+                    <p>Render diverse URLs with Playwright, capturing screenshots and accessibility trees</p>
+                  </div>
+                </div>
+                <div class="column">
+                  <div class="step-card">
+                    <span class="step-number">2</span>
+                    <h4>Annotation Extraction</h4>
+                    <p>Extract bounding boxes, semantic types, and text from DOM/accessibility tree</p>
+                  </div>
+                </div>
+                <div class="column">
+                  <div class="step-card">
+                    <span class="step-number">3</span>
+                    <h4>VLM Refinement</h4>
+                    <p>Apply VLM-based relabeling to improve annotation accuracy</p>
+                  </div>
+                </div>
+                <div class="column">
+                  <div class="step-card">
+                    <span class="step-number">4</span>
+                    <h4>Quality Filtering</h4>
+                    <p>Filter low-quality samples using VLM scoring</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ScreenVLM Section -->
+  <section class="section model-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">ScreenVLM</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <div class="content">
+            <p class="has-text-centered">
+              <strong>ScreenVLM</strong> is a compact 316M-parameter vision-language model that decodes structured ScreenTag representations.
+            </p>
+            <p class="has-text-centered model-motivation">
+              Foundation VLMs (8B+ parameters) are too large for low-latency, on-device deployment, while traditional detector-based parsers lack language-grounded understanding. ScreenVLM bridges this gap: it is compact enough for practical deployment (316M parameters, 4x faster than 2B VLMs) yet retains language-aligned representations that enable structured understanding of UI semantics.
+            </p>
+          </div>
+
+          <div class="pipeline-figure">
+            <img src="static/images/architecture.png" alt="ScreenVLM Architecture Diagram" class="architecture-image">
+          </div>
+
+          <!-- ScreenTag Example -->
+          <div class="columns is-centered">
+            <div class="column is-10">
+              <div class="screentag-box">
+                <h4 class="title is-6">ScreenTag Output Format</h4>
+                <pre><code><span class="tag-root">&lt;Screentag&gt;</span>
+<span class="tag-element">&lt;Window&gt;</span> <span class="tag-coords">&lt;loc_0&gt;&lt;loc_0&gt;&lt;loc_500&gt;&lt;loc_500&gt;</span>
+  <span class="tag-element">&lt;Logo&gt;</span> <span class="tag-coords">&lt;loc_59&gt;&lt;loc_84&gt;&lt;loc_102&gt;&lt;loc_90&gt;</span> <span class="tag-text">Microsoft</span> <span class="tag-element">&lt;/Logo&gt;</span>
+  <span class="tag-container">&lt;Navigation Bar&gt;</span> <span class="tag-coords">&lt;loc_85&gt;&lt;loc_5&gt;&lt;loc_420&gt;&lt;loc_35&gt;</span>
+    <span class="tag-element">&lt;Button&gt;</span> <span class="tag-coords">&lt;loc_85&gt;&lt;loc_5&gt;&lt;loc_110&gt;&lt;loc_35&gt;</span> <span class="tag-text">Azure</span> <span class="tag-element">&lt;/Button&gt;</span>
+    <span class="tag-element">&lt;Button&gt;</span> <span class="tag-coords">&lt;loc_110&gt;&lt;loc_5&gt;&lt;loc_145&gt;&lt;loc_35&gt;</span> <span class="tag-text">Explore</span> <span class="tag-element">&lt;/Button&gt;</span>
+    <span class="tag-ellipsis">…</span>
+    <span class="tag-element">&lt;Button&gt;</span> <span class="tag-coords">&lt;loc_385&gt;&lt;loc_5&gt;&lt;loc_420&gt;&lt;loc_35&gt;</span> <span class="tag-text">Sign in</span> <span class="tag-element">&lt;/Button&gt;</span>
+  <span class="tag-container">&lt;/Navigation Bar&gt;</span>
+  <span class="tag-ellipsis">…</span>
+<span class="tag-element">&lt;/Window&gt;</span>
+<span class="tag-root">&lt;/Screentag&gt;</span></code></pre>
+              </div>
+            </div>
+          </div>
+
+          <!-- Model Features -->
+          <div class="columns is-centered model-features">
+            <div class="column is-3">
+              <div class="feature-item">
+                <p class="feature-number">316M</p>
+                <p class="feature-label">Parameters</p>
+              </div>
+            </div>
+            <div class="column is-3">
+              <div class="feature-item">
+                <p class="feature-number">4x</p>
+                <p class="feature-label">Faster than 2B VLMs</p>
+              </div>
+            </div>
+            <div class="column is-3">
+              <div class="feature-item">
+                <p class="feature-number">6x</p>
+                <p class="feature-label">Smaller memory</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results Section -->
+  <section class="section results-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Results</h2>
+
+      <!-- ScreenParse Results -->
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <h3 class="title is-5">ScreenParse Test Set</h3>
+          <div class="table-container">
+            <table class="table is-bordered is-striped is-hoverable is-fullwidth results-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th class="has-text-centered">Size</th>
+                  <th class="has-text-centered">PageIoU</th>
+                  <th class="has-text-centered">Label PageIoU</th>
+                  <th class="has-text-centered">mAP@50</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="subsection-header">
+                  <td colspan="5"><em>Vision-Language Models</em></td>
+                </tr>
+                <tr>
+                  <td>Qwen3-VL-8B-Instruct</td>
+                  <td class="has-text-centered">8B</td>
+                  <td class="has-text-centered">0.294</td>
+                  <td class="has-text-centered">-</td>
+                  <td class="has-text-centered">-</td>
+                </tr>
+                <tr>
+                  <td>Qwen3-VL-2B-Instruct</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.228</td>
+                  <td class="has-text-centered">0.051</td>
+                  <td class="has-text-centered">0.023</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>Qwen3-VL-2B + ScreenParse</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.585 <span class="gain">(+0.357)</span></td>
+                  <td class="has-text-centered">0.166 <span class="gain">(+0.115)</span></td>
+                  <td class="has-text-centered">0.152 <span class="gain">(+0.129)</span></td>
+                </tr>
+                <tr>
+                  <td>InternVL3-2B</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.111</td>
+                  <td class="has-text-centered">0.030</td>
+                  <td class="has-text-centered">0.000</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>InternVL3-2B + ScreenParse</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.509 <span class="gain">(+0.398)</span></td>
+                  <td class="has-text-centered">0.174 <span class="gain">(+0.144)</span></td>
+                  <td class="has-text-centered">0.072 <span class="gain">(+0.072)</span></td>
+                </tr>
+                <tr class="best-row">
+                  <td><strong>ScreenVLM (Ours)</strong></td>
+                  <td class="has-text-centered"><strong>316M</strong></td>
+                  <td class="has-text-centered"><strong>0.606</strong></td>
+                  <td class="has-text-centered"><strong>0.197</strong></td>
+                  <td class="has-text-centered"><strong>0.303</strong></td>
+                </tr>
+                <tr class="subsection-header">
+                  <td colspan="5"><em>Detectors / Parsers</em></td>
+                </tr>
+                <tr>
+                  <td>OmniParser V2</td>
+                  <td class="has-text-centered">20M</td>
+                  <td class="has-text-centered">0.270</td>
+                  <td class="has-text-centered">-</td>
+                  <td class="has-text-centered">-</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>OmniParser V2 + ScreenParse</td>
+                  <td class="has-text-centered">20M</td>
+                  <td class="has-text-centered">0.503</td>
+                  <td class="has-text-centered">0.141</td>
+                  <td class="has-text-centered">0.251</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>YOLO + ScreenParse</td>
+                  <td class="has-text-centered">25M</td>
+                  <td class="has-text-centered">0.533</td>
+                  <td class="has-text-centered">0.133</td>
+                  <td class="has-text-centered">0.299</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>RT-DETRv2 + ScreenParse</td>
+                  <td class="has-text-centered">43M</td>
+                  <td class="has-text-centered">0.600</td>
+                  <td class="has-text-centered">0.172</td>
+                  <td class="has-text-centered"><strong>0.362</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- GroundCUA Results -->
+      <div class="columns is-centered" style="margin-top: 2rem;">
+        <div class="column is-10">
+          <h3 class="title is-5">GroundCUA Transfer (Out-of-Distribution)</h3>
+          <div class="table-container">
+            <table class="table is-bordered is-striped is-hoverable is-fullwidth results-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th class="has-text-centered">Size</th>
+                  <th class="has-text-centered">PageIoU</th>
+                  <th class="has-text-centered">Label PageIoU</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="subsection-header">
+                  <td colspan="4"><em>Vision-Language Models</em></td>
+                </tr>
+                <tr>
+                  <td>Qwen3-VL-8B-Instruct</td>
+                  <td class="has-text-centered">8B</td>
+                  <td class="has-text-centered">0.060</td>
+                  <td class="has-text-centered">0.010</td>
+                </tr>
+                <tr>
+                  <td>Qwen3-VL-2B-Instruct</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.030</td>
+                  <td class="has-text-centered">0.005</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>Qwen3-VL-2B + ScreenParse</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.090 <span class="gain">(+0.060)</span></td>
+                  <td class="has-text-centered">0.019 <span class="gain">(+0.014)</span></td>
+                </tr>
+                <tr>
+                  <td>InternVL3-2B</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.025</td>
+                  <td class="has-text-centered">0.006</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>InternVL3-2B + ScreenParse</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.203 <span class="gain">(+0.178)</span></td>
+                  <td class="has-text-centered">0.036 <span class="gain">(+0.030)</span></td>
+                </tr>
+                <tr class="best-row">
+                  <td><strong>ScreenVLM (Ours)</strong></td>
+                  <td class="has-text-centered"><strong>316M</strong></td>
+                  <td class="has-text-centered"><strong>0.251</strong></td>
+                  <td class="has-text-centered"><strong>0.043</strong></td>
+                </tr>
+                <tr class="subsection-header">
+                  <td colspan="4"><em>Detectors / Parsers</em></td>
+                </tr>
+                <tr>
+                  <td>OmniParser V2</td>
+                  <td class="has-text-centered">20M</td>
+                  <td class="has-text-centered">0.361</td>
+                  <td class="has-text-centered">0.049</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>OmniParser V2 + ScreenParse</td>
+                  <td class="has-text-centered">20M</td>
+                  <td class="has-text-centered"><strong>0.398</strong></td>
+                  <td class="has-text-centered"><strong>0.061</strong></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ScreenSpot Results -->
+      <div class="columns is-centered" style="margin-top: 2rem;">
+        <div class="column is-10">
+          <h3 class="title is-5">ScreenSpot Benchmark</h3>
+          <div class="table-container">
+            <table class="table is-bordered is-striped is-hoverable is-fullwidth results-table screenspot-table">
+              <thead>
+                <tr>
+                  <th rowspan="2">Model</th>
+                  <th rowspan="2" class="has-text-centered">Size</th>
+                  <th colspan="2" class="has-text-centered">Web</th>
+                  <th colspan="2" class="has-text-centered">PC</th>
+                  <th colspan="2" class="has-text-centered">Mobile</th>
+                </tr>
+                <tr>
+                  <th class="has-text-centered">Recall</th>
+                  <th class="has-text-centered">PixCov</th>
+                  <th class="has-text-centered">Recall</th>
+                  <th class="has-text-centered">PixCov</th>
+                  <th class="has-text-centered">Recall</th>
+                  <th class="has-text-centered">PixCov</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="subsection-header">
+                  <td colspan="8"><em>Vision-Language Models</em></td>
+                </tr>
+                <tr>
+                  <td>Qwen3-VL-8B-Instruct</td>
+                  <td class="has-text-centered">8B</td>
+                  <td class="has-text-centered">0.229</td>
+                  <td class="has-text-centered">0.346</td>
+                  <td class="has-text-centered">0.201</td>
+                  <td class="has-text-centered">0.300</td>
+                  <td class="has-text-centered">0.193</td>
+                  <td class="has-text-centered">0.311</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>Qwen3-VL-2B + ScreenParse</td>
+                  <td class="has-text-centered">2B</td>
+                  <td class="has-text-centered">0.477</td>
+                  <td class="has-text-centered">0.720</td>
+                  <td class="has-text-centered">0.201</td>
+                  <td class="has-text-centered">0.443</td>
+                  <td class="has-text-centered">0.108</td>
+                  <td class="has-text-centered">0.477</td>
+                </tr>
+                <tr class="best-row">
+                  <td><strong>ScreenVLM (Ours)</strong></td>
+                  <td class="has-text-centered"><strong>316M</strong></td>
+                  <td class="has-text-centered"><strong>0.557</strong></td>
+                  <td class="has-text-centered"><strong>0.746</strong></td>
+                  <td class="has-text-centered"><strong>0.222</strong></td>
+                  <td class="has-text-centered"><strong>0.839</strong></td>
+                  <td class="has-text-centered">0.066</td>
+                  <td class="has-text-centered"><strong>0.847</strong></td>
+                </tr>
+                <tr class="subsection-header">
+                  <td colspan="8"><em>Detectors / Parsers</em></td>
+                </tr>
+                <tr>
+                  <td>OmniParser V2</td>
+                  <td class="has-text-centered">20M</td>
+                  <td class="has-text-centered">0.541</td>
+                  <td class="has-text-centered">0.629</td>
+                  <td class="has-text-centered">0.483</td>
+                  <td class="has-text-centered">0.557</td>
+                  <td class="has-text-centered">0.489</td>
+                  <td class="has-text-centered">0.521</td>
+                </tr>
+                <tr class="finetuned-row">
+                  <td>RT-DETRv2 + ScreenParse</td>
+                  <td class="has-text-centered">43M</td>
+                  <td class="has-text-centered"><strong>0.768</strong></td>
+                  <td class="has-text-centered"><strong>0.857</strong></td>
+                  <td class="has-text-centered"><strong>0.590</strong></td>
+                  <td class="has-text-centered"><strong>0.699</strong></td>
+                  <td class="has-text-centered"><strong>0.584</strong></td>
+                  <td class="has-text-centered">0.736</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Qualitative Examples -->
+  <section class="section examples-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Qualitative Examples</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <p class="has-text-centered" style="margin-bottom: 2rem;">
+            Comparison of ground truth annotations vs. model predictions on diverse web screenshots.
+          </p>
+
+          <div class="examples-grid">
+            <div class="example-pair">
+              <div class="example-images">
+                <div class="example-image">
+                  <img src="static/images/results/example1_gt.jpg" alt="Ground Truth 1">
+                  <p class="image-label">Ground Truth</p>
+                </div>
+                <div class="example-image">
+                  <img src="static/images/results/example1_pred.jpg" alt="Prediction 1">
+                  <p class="image-label">ScreenVLM Prediction</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="example-pair">
+              <div class="example-images">
+                <div class="example-image">
+                  <img src="static/images/results/example2_gt.jpg" alt="Ground Truth 2">
+                  <p class="image-label">Ground Truth</p>
+                </div>
+                <div class="example-image">
+                  <img src="static/images/results/example2_pred.jpg" alt="Prediction 2">
+                  <p class="image-label">ScreenVLM Prediction</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="example-pair">
+              <div class="example-images">
+                <div class="example-image">
+                  <img src="static/images/results/example3_gt.jpg" alt="Ground Truth 3">
+                  <p class="image-label">Ground Truth</p>
+                </div>
+                <div class="example-image">
+                  <img src="static/images/results/example3_pred.jpg" alt="Prediction 3">
+                  <p class="image-label">Qwen3-VL Finetuned</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="example-pair">
+              <div class="example-images">
+                <div class="example-image">
+                  <img src="static/images/results/example4_gt.jpg" alt="Ground Truth 4">
+                  <p class="image-label">Ground Truth</p>
+                </div>
+                <div class="example-image">
+                  <img src="static/images/results/example4_pred.jpg" alt="Prediction 4">
+                  <p class="image-label">OmniParser Finetuned</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+
+  <!-- Annotation Comparison -->
+  <section class="section annotation-cmp-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">How Do Other Datasets Compare?</h2>
+      <div class="columns is-centered">
+        <div class="column is-10">
+          <p class="has-text-centered annotation-cmp-desc">
+            Most existing datasets annotate only one or a few elements per screen. ScreenParse provides <strong>dense</strong> annotations covering every visible UI element. Click any sample to zoom in.
+          </p>
+          <div class="annotation-cmp-strip">
+            <div class="annotation-cmp-card sparse">
+              <div class="annotation-cmp-img">
+                <img src="static/images/other_datasets/screenspot_web_example.jpg" alt="ScreenSpot Web example">
+              </div>
+              <div class="annotation-cmp-label">
+                <span class="annotation-cmp-badge sparse-badge">Sparse</span>
+                <span class="annotation-cmp-name">ScreenSpot (Web)</span>
+              </div>
+            </div>
+            <div class="annotation-cmp-card sparse">
+              <div class="annotation-cmp-img">
+                <img src="static/images/other_datasets/screenspot_pc_example.jpg" alt="ScreenSpot PC example">
+              </div>
+              <div class="annotation-cmp-label">
+                <span class="annotation-cmp-badge sparse-badge">Sparse</span>
+                <span class="annotation-cmp-name">ScreenSpot (PC)</span>
+              </div>
+            </div>
+            <div class="annotation-cmp-card sparse">
+              <div class="annotation-cmp-img">
+                <img src="static/images/other_datasets/screenspot_mobile_example.jpg" alt="ScreenSpot Mobile example">
+              </div>
+              <div class="annotation-cmp-label">
+                <span class="annotation-cmp-badge sparse-badge">Sparse</span>
+                <span class="annotation-cmp-name">ScreenSpot (Mobile)</span>
+              </div>
+            </div>
+            <div class="annotation-cmp-card sparse">
+              <div class="annotation-cmp-img">
+                <img src="static/images/other_datasets/screenspot_pro_examples.png" alt="ScreenSpot-Pro example">
+              </div>
+              <div class="annotation-cmp-label">
+                <span class="annotation-cmp-badge sparse-badge">Sparse</span>
+                <span class="annotation-cmp-name">ScreenSpot-Pro</span>
+              </div>
+            </div>
+            <div class="annotation-cmp-card sparse">
+              <div class="annotation-cmp-img">
+                <img src="static/images/other_datasets/mmbench_gui_example.png" alt="MMBench-GUI example">
+              </div>
+              <div class="annotation-cmp-label">
+                <span class="annotation-cmp-badge sparse-badge">Sparse</span>
+                <span class="annotation-cmp-name">MMBench-GUI</span>
+              </div>
+            </div>
+            <div class="annotation-cmp-card sparse">
+              <div class="annotation-cmp-img">
+                <img src="static/images/other_datasets/ui_vision_example.png" alt="UI-Vision example">
+              </div>
+              <div class="annotation-cmp-label">
+                <span class="annotation-cmp-badge sparse-badge">Sparse</span>
+                <span class="annotation-cmp-name">UI-Vision</span>
+              </div>
+            </div>
+            <div class="annotation-cmp-card dense">
+              <div class="annotation-cmp-img">
+                <img src="static/images/gt/www-casadomo-com-f36948a0f00b0915.viz.jpg" alt="ScreenParse dense annotation">
+              </div>
+              <div class="annotation-cmp-label">
+                <span class="annotation-cmp-badge dense-badge">Dense</span>
+                <span class="annotation-cmp-name">ScreenParse (Ours)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Limitations & Future Work -->
+  <section class="section limitations-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Limitations & Future Work</h2>
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <div class="content limitations-content">
+            <div class="limitation-item">
+              <h4><i class="fas fa-exclamation-triangle"></i> Current Limitations</h4>
+              <p>
+                ScreenParse is predominantly <strong>web-centric</strong>, leaving a domain gap to native desktop and mobile applications with different UI toolkits and interaction patterns. While we demonstrate strong transfer to the GroundCUA benchmark (which includes desktop screenshots), there remains room for improvement on native application interfaces.
+              </p>
+            </div>
+
+            <div class="limitation-item future">
+              <h4><i class="fas fa-rocket"></i> Future Directions</h4>
+              <p>
+                A natural next step is expanding dense parsing supervision to cover <strong>native desktop and mobile UIs</strong>. Another promising direction is leveraging screen-parsing-pretrained models as <strong>visual backbones for vision-language-action agents</strong>, capitalizing on holistic screen understanding for improved grounding and decision making.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Citation -->
+  <section class="section citation-section">
+    <div class="container">
+      <h2 class="title is-3 has-text-centered">Citation</h2>
+      <div class="columns is-centered">
+        <div class="column is-8">
+          <div class="citation-box">
+            <p class="citation-note">
+              Please cite the arXiv version until the official ICML proceedings entry is available.
+            </p>
+            <pre><code>@misc{gurbuz2026movingsparsegroundingcomplete,
+      title={Moving Beyond Sparse Grounding with Complete Screen Parsing Supervision},
+      author={A. Said Gurbuz and Sunghwan Hong and Ahmed Nassar and Marc Pollefeys and Peter Staar},
+      year={2026},
+      eprint={2602.14276},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2602.14276},
+}</code></pre>
+            <button class="button is-small copy-button" onclick="copyBibtex()">
+              <span class="icon"><i class="fas fa-copy"></i></span>
+              <span>Copy</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="content has-text-centered">
+        <p>
+          The website template is borrowed from <a href="https://nerfies.github.io">Nerfies</a> and <a href="https://groundcua.github.io">GroundCUA</a>.
+        </p>
+        <p>
+          <a href="#">Privacy Policy</a> | <a href="#">Terms of Use</a>
+        </p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- JavaScript -->
+  <script src="static/js/index.js?v=20260212-1"></script>
+</body>
+
+</html>
