@@ -49,6 +49,9 @@ See [`webshot/README.md`](webshot/README.md) and [`webshot/USAGE.md`](webshot/US
 
 - Project page: https://saidgurbuz.github.io/screenparse/
 - Paper: https://arxiv.org/abs/2602.14276
+- Dataset: https://huggingface.co/datasets/docling-project/screenparse
+- ScreenVLM: https://huggingface.co/docling-project/ScreenVLM
+- ScreenParser: https://huggingface.co/docling-project/ScreenParser
 - Webshot toolkit: [`webshot/`](webshot/)
 
 ## Citation

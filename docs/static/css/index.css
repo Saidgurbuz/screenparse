@@ -154,17 +154,6 @@ body {
   box-shadow: 0 4px 12px rgba(50, 115, 220, 0.35);
 }
 
-.publication-links .button.demo-button {
-  background: linear-gradient(135deg, #ffd54f 0%, #ffb300 100%);
-  color: #2d2d2d;
-}
-
-.publication-links .button.demo-button:hover {
-  background: linear-gradient(135deg, #ffca28 0%, #ff9800 100%);
-  color: #1f1f1f;
-  box-shadow: 0 4px 12px rgba(255, 179, 0, 0.4);
-}
-
 /* Statistics Section */
 .stats-section {
   background-color: var(--background);
