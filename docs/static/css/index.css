@@ -354,6 +354,7 @@ body {
 }
 
 .pipeline-flow-scroll {
+  max-width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.4rem 0.4rem 1rem;
@@ -385,11 +386,9 @@ body {
 }
 
 .pipeline-flow {
-  display: flex;
+  display: inline-flex;
   align-items: stretch;
   gap: 3rem;
-  width: max-content;
-  min-width: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
