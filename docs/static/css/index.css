@@ -301,19 +301,10 @@ body {
   font-weight: 500;
 }
 
-.dataset-audit {
-  margin-top: 3rem;
-}
-
-.audit-note,
 .results-note {
   color: var(--text-light);
   margin: 0 auto 1rem;
   max-width: 900px;
-}
-
-.audit-table {
-  margin-bottom: 0;
 }
 
 /* Pipeline Section */

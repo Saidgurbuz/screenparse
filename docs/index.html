@@ -399,63 +399,6 @@
             </p>
           </div>
 
-          <div class="dataset-audit">
-            <h3 class="title is-5 has-text-centered">Annotation Quality Audit</h3>
-            <p class="has-text-centered audit-note">
-              We audited class-label correctness on 100 randomly sampled ScreenParse pages after filtering and refinement, covering 3,173 extracted UI elements.
-            </p>
-            <div class="columns is-centered">
-              <div class="column is-7">
-                <div class="table-container">
-                  <table class="table is-bordered is-striped is-hoverable is-fullwidth results-table audit-table">
-                    <thead>
-                      <tr>
-                        <th>Audit Statistic</th>
-                        <th class="has-text-centered">Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>Audited pages</td>
-                        <td class="has-text-centered">100</td>
-                      </tr>
-                      <tr>
-                        <td>Audited UI elements</td>
-                        <td class="has-text-centered">3,173</td>
-                      </tr>
-                      <tr>
-                        <td>Correct labels</td>
-                        <td class="has-text-centered">3,101 / 3,173</td>
-                      </tr>
-                      <tr class="best-row">
-                        <td>Element-level micro accuracy</td>
-                        <td class="has-text-centered"><strong>97.73%</strong></td>
-                      </tr>
-                      <tr>
-                        <td>Mean per-page accuracy</td>
-                        <td class="has-text-centered">96.77%</td>
-                      </tr>
-                      <tr>
-                        <td>Micro / Macro F1</td>
-                        <td class="has-text-centered">0.9888 / 0.9208</td>
-                      </tr>
-                      <tr>
-                        <td>Pages with at least 95% accuracy</td>
-                        <td class="has-text-centered">84 / 100</td>
-                      </tr>
-                      <tr>
-                        <td>Pages with at least 90% accuracy</td>
-                        <td class="has-text-centered">94 / 100</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-            <p class="has-text-centered is-size-7">
-              This audit evaluates label correctness for extracted boxes; Webshot separately filters page-level coverage, duplication, false positives, and localization quality.
-            </p>
-          </div>
         </div>
       </div>
     </div>
