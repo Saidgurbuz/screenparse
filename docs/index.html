@@ -398,6 +398,64 @@
               Distribution of the 20 most frequent UI element types in ScreenParse. The dataset covers 55 semantic classes total.
             </p>
           </div>
+
+          <div class="dataset-audit">
+            <h3 class="title is-5 has-text-centered">Annotation Quality Audit</h3>
+            <p class="has-text-centered audit-note">
+              We audited class-label correctness on 100 randomly sampled ScreenParse pages after filtering and refinement, covering 3,173 extracted UI elements.
+            </p>
+            <div class="columns is-centered">
+              <div class="column is-7">
+                <div class="table-container">
+                  <table class="table is-bordered is-striped is-hoverable is-fullwidth results-table audit-table">
+                    <thead>
+                      <tr>
+                        <th>Audit Statistic</th>
+                        <th class="has-text-centered">Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Audited pages</td>
+                        <td class="has-text-centered">100</td>
+                      </tr>
+                      <tr>
+                        <td>Audited UI elements</td>
+                        <td class="has-text-centered">3,173</td>
+                      </tr>
+                      <tr>
+                        <td>Correct labels</td>
+                        <td class="has-text-centered">3,101 / 3,173</td>
+                      </tr>
+                      <tr class="best-row">
+                        <td>Element-level micro accuracy</td>
+                        <td class="has-text-centered"><strong>97.73%</strong></td>
+                      </tr>
+                      <tr>
+                        <td>Mean per-page accuracy</td>
+                        <td class="has-text-centered">96.77%</td>
+                      </tr>
+                      <tr>
+                        <td>Micro / Macro F1</td>
+                        <td class="has-text-centered">0.9888 / 0.9208</td>
+                      </tr>
+                      <tr>
+                        <td>Pages with at least 95% accuracy</td>
+                        <td class="has-text-centered">84 / 100</td>
+                      </tr>
+                      <tr>
+                        <td>Pages with at least 90% accuracy</td>
+                        <td class="has-text-centered">94 / 100</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <p class="has-text-centered is-size-7">
+              This audit evaluates label correctness for extracted boxes; Webshot separately filters page-level coverage, duplication, false positives, and localization quality.
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -787,6 +845,189 @@
           </div>
         </div>
       </div>
+
+      <!-- Downstream Results -->
+      <div class="columns is-centered" style="margin-top: 2rem;">
+        <div class="column is-10">
+          <h3 class="title is-5">Downstream Action Tasks</h3>
+          <p class="results-note">
+            We use a fixed Qwen3-VL-8B-Instruct Set-of-Mark pipeline and swap only the detector: OmniParser v2 versus a YOLO detector trained on ScreenParse. Holding OCR, icon captioning, rendering, prompting, and decoding fixed isolates the effect of ScreenParse-trained grounding.
+          </p>
+          <div class="table-container">
+            <table class="table is-bordered is-striped is-hoverable is-fullwidth results-table downstream-table">
+              <thead>
+                <tr>
+                  <th>Benchmark / Split</th>
+                  <th>Metric</th>
+                  <th class="has-text-centered">OmniParser v2</th>
+                  <th class="has-text-centered">ScreenParse (YOLO)</th>
+                  <th class="has-text-centered">Delta</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="subsection-header">
+                  <td colspan="5"><em>Primary benchmark metrics</em></td>
+                </tr>
+                <tr>
+                  <td>ScreenSpot</td>
+                  <td>Action Acc.</td>
+                  <td class="has-text-centered">77.8</td>
+                  <td class="has-text-centered"><strong>80.1</strong></td>
+                  <td class="has-text-centered"><span class="gain">+2.3</span></td>
+                </tr>
+                <tr>
+                  <td>ScreenSpot-Pro</td>
+                  <td>Action Acc.</td>
+                  <td class="has-text-centered">28.5</td>
+                  <td class="has-text-centered"><strong>30.5</strong></td>
+                  <td class="has-text-centered"><span class="gain">+2.0</span></td>
+                </tr>
+                <tr>
+                  <td>Mind2Web (website)</td>
+                  <td>Step Success</td>
+                  <td class="has-text-centered">24.1</td>
+                  <td class="has-text-centered"><strong>27.1</strong></td>
+                  <td class="has-text-centered"><span class="gain">+3.0</span></td>
+                </tr>
+                <tr>
+                  <td>Mind2Web (task)</td>
+                  <td>Step Success</td>
+                  <td class="has-text-centered">26.8</td>
+                  <td class="has-text-centered"><strong>27.0</strong></td>
+                  <td class="has-text-centered"><span class="gain">+0.2</span></td>
+                </tr>
+                <tr>
+                  <td>Mind2Web (domain)</td>
+                  <td>Step Success</td>
+                  <td class="has-text-centered">28.7</td>
+                  <td class="has-text-centered"><strong>29.6</strong></td>
+                  <td class="has-text-centered"><span class="gain">+0.9</span></td>
+                </tr>
+                <tr>
+                  <td>OSWorld-G</td>
+                  <td>Overall Acc.</td>
+                  <td class="has-text-centered">46.67</td>
+                  <td class="has-text-centered"><strong>48.82</strong></td>
+                  <td class="has-text-centered"><span class="gain">+2.15</span></td>
+                </tr>
+                <tr class="subsection-header">
+                  <td colspan="5"><em>ScreenSpot domain breakdown</em></td>
+                </tr>
+                <tr>
+                  <td>ScreenSpot (Web)</td>
+                  <td>Action Acc.</td>
+                  <td class="has-text-centered">77.1</td>
+                  <td class="has-text-centered"><strong>81.9</strong></td>
+                  <td class="has-text-centered"><span class="gain">+4.8</span></td>
+                </tr>
+                <tr>
+                  <td>ScreenSpot (Mobile)</td>
+                  <td>Action Acc.</td>
+                  <td class="has-text-centered">83.5</td>
+                  <td class="has-text-centered"><strong>84.9</strong></td>
+                  <td class="has-text-centered"><span class="gain">+1.4</span></td>
+                </tr>
+                <tr>
+                  <td>ScreenSpot (Desktop)</td>
+                  <td>Action Acc.</td>
+                  <td class="has-text-centered">70.4</td>
+                  <td class="has-text-centered"><strong>71.2</strong></td>
+                  <td class="has-text-centered"><span class="gain">+0.8</span></td>
+                </tr>
+                <tr class="subsection-header">
+                  <td colspan="5"><em>OSWorld-G capability breakdown</em></td>
+                </tr>
+                <tr>
+                  <td>OSWorld-G (Text Matching)</td>
+                  <td>Acc.</td>
+                  <td class="has-text-centered">59.00</td>
+                  <td class="has-text-centered"><strong>61.69</strong></td>
+                  <td class="has-text-centered"><span class="gain">+2.69</span></td>
+                </tr>
+                <tr>
+                  <td>OSWorld-G (Element Recognition)</td>
+                  <td>Acc.</td>
+                  <td class="has-text-centered">50.30</td>
+                  <td class="has-text-centered"><strong>50.91</strong></td>
+                  <td class="has-text-centered"><span class="gain">+0.61</span></td>
+                </tr>
+                <tr>
+                  <td>OSWorld-G (Layout Understanding)</td>
+                  <td>Acc.</td>
+                  <td class="has-text-centered">53.36</td>
+                  <td class="has-text-centered"><strong>56.13</strong></td>
+                  <td class="has-text-centered"><span class="gain">+2.77</span></td>
+                </tr>
+                <tr>
+                  <td>OSWorld-G (Fine-grained Manipulation)</td>
+                  <td>Acc.</td>
+                  <td class="has-text-centered">25.50</td>
+                  <td class="has-text-centered"><strong>29.53</strong></td>
+                  <td class="has-text-centered"><span class="gain">+4.03</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="results-footnote">
+            Values are percentages and deltas are percentage points. These controlled evaluations measure step-level grounding and action selection rather than full multi-step agent success.
+          </p>
+        </div>
+      </div>
+
+      <!-- Loss Ablation -->
+      <div class="columns is-centered" style="margin-top: 2rem;">
+        <div class="column is-10">
+          <h3 class="title is-5">Structure-Aware Loss Ablation</h3>
+          <p class="results-note">
+            Upweighting tag and location tokens improves dense parsing and out-of-distribution transfer compared with standard cross-entropy, especially on ScreenSpot PC.
+          </p>
+          <div class="table-container">
+            <table class="table is-bordered is-striped is-hoverable is-fullwidth results-table ablation-table">
+              <thead>
+                <tr>
+                  <th rowspan="2">Model</th>
+                  <th colspan="2" class="has-text-centered">ScreenParse</th>
+                  <th colspan="2" class="has-text-centered">GroundCUA</th>
+                  <th class="has-text-centered">ScreenSpot Web</th>
+                  <th class="has-text-centered">ScreenSpot PC</th>
+                  <th class="has-text-centered">ScreenSpot Mobile</th>
+                </tr>
+                <tr>
+                  <th class="has-text-centered">PageIoU</th>
+                  <th class="has-text-centered">Label PageIoU</th>
+                  <th class="has-text-centered">PageIoU</th>
+                  <th class="has-text-centered">Label PageIoU</th>
+                  <th class="has-text-centered">Recall</th>
+                  <th class="has-text-centered">Recall</th>
+                  <th class="has-text-centered">Recall</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>ScreenVLM (CE)</td>
+                  <td class="has-text-centered">0.592</td>
+                  <td class="has-text-centered">0.192</td>
+                  <td class="has-text-centered">0.226</td>
+                  <td class="has-text-centered">0.039</td>
+                  <td class="has-text-centered">0.541</td>
+                  <td class="has-text-centered">0.129</td>
+                  <td class="has-text-centered">0.052</td>
+                </tr>
+                <tr class="best-row">
+                  <td><strong>ScreenVLM (Structure-aware)</strong></td>
+                  <td class="has-text-centered"><strong>0.606</strong> <span class="gain">+2.4%</span></td>
+                  <td class="has-text-centered"><strong>0.197</strong> <span class="gain">+2.6%</span></td>
+                  <td class="has-text-centered"><strong>0.251</strong> <span class="gain">+11.1%</span></td>
+                  <td class="has-text-centered"><strong>0.043</strong> <span class="gain">+10.3%</span></td>
+                  <td class="has-text-centered"><strong>0.557</strong> <span class="gain">+3.0%</span></td>
+                  <td class="has-text-centered"><strong>0.222</strong> <span class="gain">+72.1%</span></td>
+                  <td class="has-text-centered"><strong>0.066</strong> <span class="gain">+26.9%</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -949,7 +1190,7 @@
             <div class="limitation-item">
               <h4><i class="fas fa-exclamation-triangle"></i> Current Limitations</h4>
               <p>
-                ScreenParse is predominantly <strong>web-centric</strong>, leaving a domain gap to native desktop and mobile applications with different UI toolkits and interaction patterns. While we demonstrate strong transfer to the GroundCUA benchmark (which includes desktop screenshots), there remains room for improvement on native application interfaces.
+                ScreenParse is predominantly <strong>web-centric</strong>, leaving a domain gap to native desktop and mobile applications with different UI toolkits and interaction patterns. DOM-driven extraction can retain residual noise from dynamic content, canvas-heavy interfaces, ads, overlays, or rendering artifacts even after filtering. ScreenParse also uses viewport-level captures rather than scroll-complete page states, which keeps each sample tied to one visible screen but underrepresents below-the-fold UI contexts.
               </p>
             </div>
 

@@ -301,6 +301,21 @@ body {
   font-weight: 500;
 }
 
+.dataset-audit {
+  margin-top: 3rem;
+}
+
+.audit-note,
+.results-note {
+  color: var(--text-light);
+  margin: 0 auto 1rem;
+  max-width: 900px;
+}
+
+.audit-table {
+  margin-bottom: 0;
+}
+
 /* Pipeline Section */
 .pipeline-section {
   background-color: var(--background);
@@ -525,6 +540,17 @@ body {
 
 .screenspot-table th {
   font-size: 0.85rem;
+}
+
+.downstream-table,
+.ablation-table {
+  min-width: 760px;
+}
+
+.results-footnote {
+  color: var(--text-light);
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
 }
 
 /* Examples Section */
