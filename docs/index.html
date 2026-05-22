@@ -422,33 +422,54 @@
 
           <div class="columns is-centered pipeline-steps">
             <div class="column is-10">
-              <div class="columns">
-                <div class="column">
+              <div class="columns is-multiline">
+                <div class="column is-half-tablet is-one-quarter-desktop">
                   <div class="step-card">
                     <span class="step-number">1</span>
-                    <h4>Web Rendering</h4>
-                    <p>Render diverse URLs with Playwright, capturing screenshots and accessibility trees</p>
+                    <h4>Web Crawling</h4>
+                    <p>Collect diverse URLs as the starting point for large-scale screen capture.</p>
                   </div>
                 </div>
-                <div class="column">
+                <div class="column is-half-tablet is-one-quarter-desktop">
                   <div class="step-card">
                     <span class="step-number">2</span>
-                    <h4>Annotation Extraction</h4>
-                    <p>Extract bounding boxes, semantic types, and text from DOM/accessibility tree</p>
+                    <h4>Rendering</h4>
+                    <p>Render each page with Playwright to obtain screenshots and page metadata.</p>
                   </div>
                 </div>
-                <div class="column">
+                <div class="column is-half-tablet is-one-quarter-desktop">
                   <div class="step-card">
                     <span class="step-number">3</span>
-                    <h4>VLM Refinement</h4>
-                    <p>Apply VLM-based relabeling to improve annotation accuracy</p>
+                    <h4>Bounding Box Extraction + Filtering</h4>
+                    <p>Extract visible UI boxes and remove noisy or invalid candidates.</p>
                   </div>
                 </div>
-                <div class="column">
+                <div class="column is-half-tablet is-one-quarter-desktop">
                   <div class="step-card">
                     <span class="step-number">4</span>
-                    <h4>Quality Filtering</h4>
-                    <p>Filter low-quality samples using VLM scoring</p>
+                    <h4>Refining Class Labels</h4>
+                    <p>Use page, crop, and HTML context to refine UI element classes.</p>
+                  </div>
+                </div>
+                <div class="column is-half-tablet is-one-quarter-desktop">
+                  <div class="step-card">
+                    <span class="step-number">5</span>
+                    <h4>VLM-as-a-judge Filtering</h4>
+                    <p>Score annotation quality and curate accepted screen samples.</p>
+                  </div>
+                </div>
+                <div class="column is-half-tablet is-one-quarter-desktop">
+                  <div class="step-card">
+                    <span class="step-number">6</span>
+                    <h4>Hierarchical Grouping and Serialization</h4>
+                    <p>Group elements into ScreenTag structure for complete screen parsing.</p>
+                  </div>
+                </div>
+                <div class="column is-half-tablet is-one-quarter-desktop">
+                  <div class="step-card">
+                    <span class="step-number">7</span>
+                    <h4>Train</h4>
+                    <p>Train ScreenVLM on the curated ScreenTag supervision.</p>
                   </div>
                 </div>
               </div>
