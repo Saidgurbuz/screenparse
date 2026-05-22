@@ -353,11 +353,83 @@ body {
   margin-top: 2rem;
 }
 
+.pipeline-flow-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.4rem 0.4rem 1rem;
+  scroll-snap-type: x proximity;
+  scrollbar-color: rgba(72, 199, 116, 0.75) var(--light-bg);
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pipeline-flow-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.pipeline-flow-scroll::-webkit-scrollbar-track {
+  background: var(--light-bg);
+  border-radius: 999px;
+}
+
+.pipeline-flow-scroll::-webkit-scrollbar-thumb {
+  background: rgba(72, 199, 116, 0.75);
+  border: 2px solid var(--light-bg);
+  border-radius: 999px;
+}
+
+.pipeline-flow-scroll:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.pipeline-flow {
+  display: flex;
+  align-items: stretch;
+  gap: 3rem;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pipeline-stage {
+  position: relative;
+  display: flex;
+  flex: 0 0 230px;
+  scroll-snap-align: start;
+}
+
+.pipeline-stage:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: 3rem;
+  right: -2.45rem;
+  z-index: 1;
+  width: 2rem;
+  height: 2px;
+  background: rgba(72, 199, 116, 0.65);
+}
+
+.pipeline-stage:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: calc(3rem - 5px);
+  right: -2.55rem;
+  z-index: 1;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 8px solid var(--success);
+}
+
 .step-card {
   background: var(--light-bg);
   border-radius: 8px;
   padding: 1.5rem;
   height: 100%;
+  width: 100%;
   position: relative;
   transition: all 0.3s ease;
 }
