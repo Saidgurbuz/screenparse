@@ -1,7 +1,7 @@
 # [ICML 2026] ScreenParse
 
 [![ICML 2026](https://img.shields.io/badge/ICML-2026-8A1538)](https://icml.cc/)
-[![arXiv](https://img.shields.io/badge/arXiv-2602.14276-b31b1b)](https://arxiv.org/abs/2602.14276)
+[![OpenReview](https://img.shields.io/badge/OpenReview-H8KE7sudq5-8A1538)](https://openreview.net/forum?id=H8KE7sudq5)
 [![Project Page](https://img.shields.io/badge/Project-Page-2f6f8f)](https://saidgurbuz.github.io/screenparse/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -48,7 +48,7 @@ See [`webshot/README.md`](webshot/README.md) and [`webshot/USAGE.md`](webshot/US
 ## Links
 
 - Project page: https://saidgurbuz.github.io/screenparse/
-- Paper: https://arxiv.org/abs/2602.14276
+- Paper: https://openreview.net/forum?id=H8KE7sudq5
 - Dataset: https://huggingface.co/datasets/docling-project/screenparse
 - ScreenVLM: https://huggingface.co/docling-project/ScreenVLM
 - ScreenParser: https://huggingface.co/docling-project/ScreenParser
